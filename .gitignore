@@ -1,0 +1,3 @@
+*.bin
+app/models/*.bin
+Car-Parts-Bot/app/models/*.bin
