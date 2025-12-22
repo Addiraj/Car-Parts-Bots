@@ -18,3 +18,4 @@ fasttext==0.9.3
 rapidfuzz==3.14.3
 redis==7.1.0
 rq==2.6.1
+gunicorn==23.0.0
