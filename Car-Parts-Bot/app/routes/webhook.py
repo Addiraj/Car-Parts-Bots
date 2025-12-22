@@ -57,10 +57,14 @@ def receive_message():
                 msg_id = msg.get("id")
                 if msg_id:
                     cache_key = f"whatsapp_msg:{msg_id}"
-                    if redis_client.exists(cache_key):
-                        print("⏭ Skip duplicate:", msg_id)
-                        continue
-                    redis_client.setex(cache_key, 172800, "processed")
+                    try:
+                        if redis_client.exists(cache_key):
+                            print("⏭ Skip duplicate:", msg_id)
+                            continue
+                        redis_client.setex(cache_key, 172800, "processed")
+                    except Exception as e:
+                        print("⚠️ Redis dedupe failed:", e)
+                
 
                 if msg.get("from") == bot_number:
                     print("Skip bot msg")
@@ -70,15 +74,17 @@ def receive_message():
 
                 if msg_type == "text":
                     text = msg["text"]["body"].strip().upper()
-
-                    redis_client.publish(
-                        "chatbot_events",
-                        json.dumps({
-                            "type": "user_message",
-                            "from": user_id,
-                            "text": text
-                        })
-                    )
+                    try:
+                        redis_client.publish(
+                            "chatbot_events",
+                            json.dumps({
+                                "type": "user_message",
+                                "from": user_id,
+                                "text": text
+                            })
+                        )
+                    except Exception as e:
+                        print("⚠️ Redis dedupe failed:", e)
                     # print("process whatsapp text message in background task",process_whatsapp_message(user_id, text, "text"))
                     # 🚀 ENQUEUE JOB IN BACKGROUND
                     task_queue.enqueue(process_whatsapp_message, user_id, text, "text")
@@ -86,31 +92,34 @@ def receive_message():
 
                 elif msg_type == "image":
                     img_media_id = msg["image"]["id"]
-
-                    redis_client.publish(
-                        "chatbot_events",
-                        json.dumps({
-                            "type": "user_image",
-                            "from": user_id,
-                            "media_id": img_media_id
-                        })
-                    )
+                    try:
+                        redis_client.publish(
+                            "chatbot_events",
+                            json.dumps({
+                                "type": "user_image",
+                                "from": user_id,
+                                "media_id": img_media_id
+                            })
+                        )
+                    except Exception as e:
+                        print("⚠️ Redis dedupe failed:", e)
 
                     # 🚀 Enqueue job to process chassis + GPT reply
                     task_queue.enqueue(process_whatsapp_message, user_id, img_media_id, "image")
 
-
                 elif msg_type == "audio":
                     media_id = msg["audio"]["id"]
-
-                    redis_client.publish(
-                        "chatbot_events",
-                        json.dumps({
-                            "type": "user_audio",
-                            "from": user_id,
-                            "media_id": media_id
-                        })
-                    )
+                    try:
+                        redis_client.publish(
+                            "chatbot_events",
+                            json.dumps({
+                                "type": "user_audio",
+                                "from": user_id,
+                                "media_id": media_id
+                            })
+                        )
+                    except Exception as e:
+                        print("⚠️ Redis dedupe failed:", e)
 
                     # 🚀 Send to worker for transcription + GPT + reply
                     task_queue.enqueue(process_whatsapp_message, user_id, media_id, "audio")
