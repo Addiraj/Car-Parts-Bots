@@ -87,7 +87,10 @@ def receive_message():
                         print("⚠️ Redis dedupe failed:", e)
                     # print("process whatsapp text message in background task",process_whatsapp_message(user_id, text, "text"))
                     # 🚀 ENQUEUE JOB IN BACKGROUND
-                    task_queue.enqueue(process_whatsapp_message, user_id, text, "text")
+                    try:
+                        task_queue.enqueue(process_whatsapp_message, user_id, text, "text")
+                    except Exception as e:
+                        print("❌ RQ enqueue failed:", e)
 
 
                 elif msg_type == "image":
@@ -104,8 +107,11 @@ def receive_message():
                     except Exception as e:
                         print("⚠️ Redis dedupe failed:", e)
 
+                    try:
                     # 🚀 Enqueue job to process chassis + GPT reply
-                    task_queue.enqueue(process_whatsapp_message, user_id, img_media_id, "image")
+                        task_queue.enqueue(process_whatsapp_message, user_id, img_media_id, "image")
+                    except Exception as e:
+                        print("❌ RQ enqueue failed:", e)
 
                 elif msg_type == "audio":
                     media_id = msg["audio"]["id"]
@@ -121,10 +127,11 @@ def receive_message():
                     except Exception as e:
                         print("⚠️ Redis dedupe failed:", e)
 
+                    try:
                     # 🚀 Send to worker for transcription + GPT + reply
-                    task_queue.enqueue(process_whatsapp_message, user_id, media_id, "audio")
-
-
+                        task_queue.enqueue(process_whatsapp_message, user_id, media_id, "audio")
+                    except Exception as e:
+                        print("❌ RQ enqueue failed:", e)
     # ALWAYS only one final response
     return jsonify({"status": "ok"}), 200
 
