@@ -1,33 +1,50 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 
+import { adminAPI } from './services/api';
+
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import PromptManager from './pages/PromptManager';  // ⬅ NEW
+import PromptManager from './pages/PromptManager';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [checkingAuth, setCheckingAuth] = useState(true);
 
+  // 🔐 Check session on app load
   useEffect(() => {
-    const token = localStorage.getItem('adminToken');
-    setIsAuthenticated(!!token);
-    setIsLoading(false);
+    const checkAuth = async () => {
+      try {
+        await adminAPI.me(); // GET /api/admin/me
+        setIsAuthenticated(true);
+      } catch {
+        setIsAuthenticated(false);
+      } finally {
+        setCheckingAuth(false);
+      }
+    };
+
+    checkAuth();
   }, []);
 
   const handleLogin = () => {
     setIsAuthenticated(true);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('adminToken');
-    setIsAuthenticated(false);
+  const handleLogout = async () => {
+    try {
+      await adminAPI.logout(); // optional but recommended
+    } catch {
+      // ignore
+    } finally {
+      setIsAuthenticated(false);
+    }
   };
 
-  if (isLoading) {
+  if (checkingAuth) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-xl text-gray-600">Loading...</div>
+        <div className="text-xl text-gray-600">Checking session…</div>
       </div>
     );
   }
@@ -35,6 +52,7 @@ function App() {
   return (
     <Router>
       <Routes>
+
         {/* Login */}
         <Route
           path="/"
@@ -59,7 +77,7 @@ function App() {
           }
         />
 
-        {/* Prompt Manager NEW */}
+        {/* Prompt Manager */}
         <Route
           path="/prompts"
           element={
@@ -73,6 +91,7 @@ function App() {
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
+
       </Routes>
     </Router>
   );
