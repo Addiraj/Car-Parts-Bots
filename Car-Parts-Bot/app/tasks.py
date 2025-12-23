@@ -79,7 +79,10 @@ from .services.whatsapp_sender import send_whatsapp_text
 from .services.media_service import process_image_media, download_whatsapp_media
 from .services.whisper_service import transcribe_audio, clean_voice_text
 from .services.media_utils import get_media_url
+# from app import create_app
 
+# _app = create_app()
+# _app.app_context().push()
 # ✅ DO NOT PING REDIS HERE
 task_queue = Queue("whatsapp", connection=redis_client)
 

@@ -1,18 +1,15 @@
+from flask import app
 from app.extensions import db
 from app.models import Stock
 from app.services.gpt_service import GPTService
 from app.services.lead_service import LeadService
 from sqlalchemy import func
 import requests
-from app import create_app
-app=create_app()
 def process_user_message(user_id: str, message: str) -> str:
     print("OUTBOUND IP:", requests.get("https://api.ipify.org").text)
  
     print("PROCESS USER MESSAGE STARTED")
-    with app.app_context():
-        gpt = GPTService(app.config["OPENAI_API_KEY"])
-    # gpt = GPTService()
+    gpt = GPTService()
     # REPLY_ONLY_INTENTS = {
     #     "greeting",
     #     "slang_abuse",

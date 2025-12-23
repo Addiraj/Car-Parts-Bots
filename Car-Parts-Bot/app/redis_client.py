@@ -35,7 +35,7 @@ if not REDIS_URL:
 
 redis_client = redis.Redis.from_url(
     REDIS_URL,
-    decode_responses=True,
+    decode_responses=False,
 
     # 🔥 critical for Upstash + Gunicorn
     socket_timeout=5,

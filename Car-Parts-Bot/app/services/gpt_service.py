@@ -90,17 +90,13 @@ class GPTService:
     incorrect_intent_predictions = 0
     response_times = []  # Store last 100 latencies only
 
-    # def __init__(self):
-    #     self.client = None
-    #     api_key = current_app.config.get("OPENAI_API_KEY")
-    #     if api_key:
-    #         self.client = OpenAI(api_key=api_key)
-    #     self.translation_service = TranslationService()
-    
-    # gpt_service.py
-    def __init__(self, api_key, translation_service=None):
-        self.api_key = api_key
-        self.translation_service = translation_service
+    def __init__(self):
+        self.client = None
+        api_key = current_app.config.get("OPENAI_API_KEY")
+        if api_key:
+            self.client = OpenAI(api_key=api_key)
+        self.translation_service = TranslationService()
+
 
     def extract_intent(self, user_message: str) -> dict[str, Any]:
         print( "EXTRACT INTENT CALLED")
