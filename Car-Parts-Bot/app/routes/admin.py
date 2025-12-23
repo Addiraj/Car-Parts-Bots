@@ -5,24 +5,91 @@ from flask import Blueprint, current_app, jsonify, request
 from functools import wraps
 from ..extensions import db
 from ..models import IntentPrompt
-
+import jwt
+import datetime
+import os
+from flask import make_response
+from datetime import datetime, timedelta, timezone
 admin_bp = Blueprint("admin", __name__)
 
 
-def require_admin_token(f):
-    """Decorator to require admin token for admin endpoints."""
+# def require_admin_token(f):
+#     """Decorator to require admin token for admin endpoints."""
+#     @wraps(f)
+#     def decorated_function(*args, **kwargs):
+#         token = request.headers.get("Authorization")
+#         expected_token = current_app.config.get("ADMIN_TOKEN", "admin-token")
+#         if not token or token != f"Bearer {expected_token}":
+#             return jsonify({"error": "Unauthorized"}), 401
+#         return f(*args, **kwargs)
+#     return decorated_function
+
+JWT_SECRET = os.getenv("JWT_SECRET")
+ADMIN_SECRET = os.getenv("ADMIN_SECRET")
+
+
+def admin_required(f):
     @wraps(f)
-    def decorated_function(*args, **kwargs):
-        token = request.headers.get("Authorization")
-        expected_token = current_app.config.get("ADMIN_TOKEN", "admin-token")
-        if not token or token != f"Bearer {expected_token}":
+    def wrapper(*args, **kwargs):
+        token = request.cookies.get("admin_session")
+        if not token:
             return jsonify({"error": "Unauthorized"}), 401
+        try:
+            jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        except jwt.ExpiredSignatureError:
+            return jsonify({"error": "Session expired"}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"error": "Invalid session"}), 401
         return f(*args, **kwargs)
-    return decorated_function
+    return wrapper
+
+
+
+@admin_bp.post("/login")
+def admin_login():
+    data = request.get_json() or {}
+    token = data.get("token")
+    if token != ADMIN_SECRET:
+        return jsonify({"error": "Invalid admin token"}), 401
+
+    payload = {
+        "role": "admin",
+        "exp": datetime.now(timezone.utc) + timedelta(hours=6)
+    }
+
+    jwt_token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+    resp = make_response(jsonify({"success": True}))
+    resp.set_cookie(
+        "admin_session",
+        jwt_token,
+        httponly=True,
+        secure=True,        # HTTPS ONLY
+        # secure=False,  # LOCAL ONLY
+
+        samesite="Strict",
+        max_age=6 * 3600
+    )
+    return resp
+
+
+@admin_bp.post("/logout")
+def admin_logout():
+    resp = make_response(jsonify({"success": True}))
+    resp.delete_cookie("admin_session")
+    return resp
+
+
+@admin_bp.get("/me")
+@admin_required
+def admin_me():
+    return jsonify({
+        "authenticated": True
+    }), 200
 
 
 @admin_bp.get("/config")
-@require_admin_token
+@admin_required
 def get_config():
     """Get current configuration (without sensitive values)."""
     return jsonify({
@@ -40,7 +107,7 @@ def get_config():
 
 
 @admin_bp.get("/stats")
-@require_admin_token
+@admin_required
 def get_stats():
     """Get basic statistics."""
     from ..extensions import db
@@ -56,7 +123,7 @@ def get_stats():
 
 
 @admin_bp.get("/metrics")
-@require_admin_token
+@admin_required
 def get_metrics():
     """Get GPT performance metrics (in-memory tracking)."""
     from ..services.gpt_service import GPTService
@@ -87,7 +154,7 @@ def get_metrics():
 
 
 @admin_bp.get("/prompts")
-@require_admin_token
+@admin_required
 def list_prompts():
     prompts = IntentPrompt.query.order_by(IntentPrompt.intent_key).all()
     return jsonify([
@@ -102,7 +169,7 @@ def list_prompts():
 
 
 @admin_bp.post("/prompts")
-@require_admin_token
+@admin_required
 def create_prompt():
     data = request.json or {}
     intent_key = data.get("intent_key", "").strip().lower()
@@ -126,7 +193,7 @@ def create_prompt():
 
 
 @admin_bp.put("/prompts/<int:prompt_id>")
-@require_admin_token
+@admin_required
 def update_prompt(prompt_id):
     prompt = IntentPrompt.query.get(prompt_id)
     if not prompt:
@@ -146,7 +213,7 @@ def update_prompt(prompt_id):
 
 
 @admin_bp.patch("/prompts/<int:prompt_id>/toggle")
-@require_admin_token
+@admin_required
 def toggle_prompt(prompt_id):
     prompt = IntentPrompt.query.get(prompt_id)
     if not prompt:
@@ -159,7 +226,7 @@ def toggle_prompt(prompt_id):
 
 
 @admin_bp.delete("/prompts/<int:prompt_id>")
-@require_admin_token
+@admin_required
 def delete_prompt(prompt_id):
     prompt = IntentPrompt.query.get(prompt_id)
     if not prompt:

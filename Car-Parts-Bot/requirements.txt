@@ -19,3 +19,4 @@ rapidfuzz==3.14.3
 redis==7.1.0
 rq==2.6.1
 gunicorn==23.0.0
+PyJWT==2.10.1
