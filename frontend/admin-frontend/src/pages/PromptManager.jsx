@@ -235,7 +235,7 @@ function PromptManager({ onLogout }) {
                   <tr key={p.id} className="border-t">
                     <td className="p-3 font-medium">{p.intent_key}</td>
 
-                    <td className="p-3">
+                    {/* <td className="p-3">
                       <button
                         onClick={() => handleToggle(p.id)}
                         className={`px-3 py-1 rounded text-sm ${
@@ -246,7 +246,28 @@ function PromptManager({ onLogout }) {
                       >
                         {p.is_active ? 'Active' : 'Inactive'}
                       </button>
+                    </td> */}
+                    <td className="p-3">
+                      <button
+                        onClick={() => {
+                          const action = p.is_active ? "deactivate" : "activate";
+                          const ok = window.confirm(
+                            `Are you sure you want to ${action} this prompt?`
+                          );
+                          if (ok) {
+                            handleToggle(p.id);
+                          }
+                        }}
+                        className={`px-3 py-1 rounded text-sm ${
+                          p.is_active
+                            ? "bg-green-100 text-green-700"
+                            : "bg-gray-200 text-gray-600"
+                        }`}
+                      >
+                        {p.is_active ? "Active" : "Inactive"}
+                      </button>
                     </td>
+
 
                     <td className="p-3 flex gap-3">
                       <button

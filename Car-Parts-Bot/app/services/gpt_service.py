@@ -192,49 +192,6 @@ class GPTService:
         # Build dynamic summary text for GPT
         intent_list_text = "\n".join([f"- {key}" for key in intent_keys])
 
-        # system_prompt = f"""
-        #     You are an intent classifier for a car parts assistant.
-
-        #     Allowed Intents:
-        #     {intent_list_text}
-
-        #     Classification Rules (EXTREMELY IMPORTANT):
-        #     - If the message consists ONLY of part numbers or looks like one or more part codes,
-        #     ALWAYS classify as "part_number".
-        #     - Part numbers may contain letters, digits, spaces, dashes, or slashes.
-        #     Examples that MUST be classified as part_number:
-        #         "2 5 11 1083"
-        #         "BKR6E-11"
-        #         "8990 CHF"
-        #         "BKR6EIX"
-        #         "HDS85.00253"
-        #         "DPN-1110-12.0124"
-        #         "444-1401L-UE-C"
-        #         "4.2604E+12"
-        #         "K-1286-01-I"
-        #         "21829"
-        #         "MXWB-24/YDA-405-24"
-
-
-        #     - Even if unsure, if the message resembles a car part code, classify intent="part_number" with lower confidence.
-
-        #     - If message contains insults, abusive language, or anger → intent="slang_abuse".
-        #     - If the message is about greetings or asking how you are → intent="greeting".
-        #     - If the message is about car service questions, pricing, availability, or asking for parts but without a code → closest matching valid intent (NOT "unknown").
-
-        #     - If message is unrelated to cars or meaningless → intent="unknown".
-
-        #     Confidence Rules:
-        #     - Strong clear match → confidence >= 0.85
-        #     - If guessing but still likely → confidence 0.50–0.84
-        #     - Very uncertain → confidence below 0.50
-
-        #     Output Format (STRICT JSON ONLY):
-        #     {{
-        #     "intent": "<intent_key_or_unknown>",
-        #     "confidence": 0.8
-        #     }}
-        #     """
         system_prompt = f"""
                     You are an intent classification model for a car parts assistant.
 
@@ -310,7 +267,6 @@ class GPTService:
                  redis_client.setex(cache_key, 3600, json.dumps(result))
             
             return result
-
 
         except Exception as e:
             current_app.logger.warning(f"Dynamic intent extraction failed: {e}")
@@ -547,121 +503,6 @@ class GPTService:
                 response += "\n"
         return response.strip()
 
-    # def format_multi_part_response(self, results_by_pn: dict, language: str = "en") -> str:
-    #     """
-    #     Format grouped results for multiple part numbers in WhatsApp-style format.
-    #     Preserves exact product values. UI elements translated only.
-    #     """
-    #     if not self.client or not results_by_pn:
-    #         return self._fallback_multi_response(results_by_pn, language)
-
-    #     model = current_app.config.get("OPENAI_MODEL", "gpt-4o-mini")
-
-    #     # Build detailed context for GPT - properly formatted
-    #     context_text = ""
-    #     for pn, items in results_by_pn.items():
-    #         context_text += f"Part Number: {pn}\n"
-            
-    #         if not items:
-    #             context_text += "  ❌ Not found\n\n"
-    #         else:
-    #             for p in items:
-    #                 context_text += (
-    #                     f"  Name: {p.get('name', 'N/A')}\n"
-    #                     f"  Brand: {p.get('brand', 'N/A')}\n"
-    #                     f"  Price: {p.get('price', 'N/A')}\n"
-    #                     f"  Qty: {p.get('qty', 'N/A')}\n\n"
-    #                 )
-
-    #     user_prompt = f"""
-    #                 You are formatting multiple grouped car part search results 
-    #                 into a professional, conversational WhatsApp-style message.
-
-    #                 🚨 NON-NEGOTIABLE RULES 🚨
-    #                 - Respond ONLY in this language: {language}
-    #                 - Translate ONLY labels and sentences
-    #                 - NEVER modify product names, brands, part numbers, prices, or quantities
-    #                 - Preserve capitalization EXACTLY
-    #                 - Values must appear EXACTLY as provided
-
-    #                 Formatting rules:
-    #                 - Greeting + short helper line
-    #                 - Group by Part Number heading
-    #                 - Bullet list inside each group:
-    #                     • *Item:* <EXACT name>
-    #                     • *Brand:* <EXACT brand>
-    #                     • *Price:* <EXACT price> AED
-    #                     • *Quantity:* <EXACT qty>
-    #                 - Add a blank line between groups
-    #                 - Minimal emojis (1–2 total)
-
-    #                 The results to format:
-    #                 {context_text}
-
-    #                 Final response structure:
-    #                 1️⃣ Friendly greeting in {language}
-    #                 2️⃣ Helper text in {language}
-    #                 3️⃣ Sections labeled by part number (never translate part numbers):
-    #                 - Headings with: 🔹 *<Part Number>*
-    #                 - Bullets exactly formatted as specified above
-    #                 4️⃣ Closing support message in {language}
-    #                 """
-
-    #     try:
-    #         start_time = time.time()
-    #         response = self.client.chat.completions.create(
-    #             model=model,
-    #             messages=[
-    #                 {
-    #                     "role": "system",
-    #                     "content": (
-    #                         "You are a multilingual WhatsApp car parts assistant. "
-    #                         "Translate ONLY UI text — never database product fields. "
-    #                         "Preserve exact values from database."
-    #                     ),
-    #                 },
-    #                 {"role": "user", "content": user_prompt},
-    #             ],
-    #             temperature=0.6,
-    #             max_tokens=650,
-    #         )
-    #         latency = time.time() - start_time
-    #         self._record_latency(latency)
-    #         return response.choices[0].message.content.strip()
-
-    #     except Exception as e:
-    #         current_app.logger.warning(f"GPT multi-format failed: {e}, using fallback")
-    #         return self._fallback_multi_response(results_by_pn, language)
-
-
-    # def _fallback_multi_response(self, results_by_pn: dict, language: str) -> str:
-    #     """
-    #     Fallback formatter for multiple part numbers when GPT is unavailable.
-    #     """
-    #     response = "Hello! 😊\nHere are the parts you requested:\n\n"
-
-    #     for pn, items in results_by_pn.items():
-    #         response += f"🔹 *{pn}*\n"
-            
-    #         if not items:
-    #             response += "  ❌ Not found\n\n"
-    #         else:
-    #             for p in items:
-    #                 response += (
-    #                     f"  • *Item:* {p.get('name', 'N/A')}\n"
-    #                     f"    *Brand:* {p.get('brand', 'N/A')}\n"
-    #                     f"    *Price:* {p.get('price', 'N/A')} AED\n"
-    #                     f"    *Quantity:* {p.get('qty', 'N/A')}\n\n"
-    #                 )
-
-    #     response += "If you need images or more details, let me know! 🚗✨"
-
-    #     if language != "en" and self.translation_service:
-    #         response = self.translation_service.translate(response, language)
-
-    #     return response.strip()
-
-
     def _fallback_intent(self, message: str) -> dict[str, Any]:
         """Fallback intent extraction without GPT."""
         clean_text = message.replace("\n", " ").replace("\r", " ").strip()
@@ -717,27 +558,6 @@ class GPTService:
         if len(GPTService.response_times) > 100:
             GPTService.response_times.pop(0)
 
-    # def record_intent_accuracy(self, intent: str, search_results: list[dict]) -> None:
-    #     """Record intent accuracy based on search results."""
-    #     GPTService.total_intent_checks += 1
-    #     if self._is_intent_correct(intent, search_results):
-    #         GPTService.correct_intent_predictions += 1
-
-    # def _is_intent_correct(self, intent: str, results: list[dict]) -> bool:
-    #     """
-    #     Simple accuracy rule:
-    #     - if intent is 'part_number' and results exist → correct
-    #     - if intent is 'chassis' and VIN/chassis detected → correct
-    #     - greeting is always correct
-    #     - else incorrect
-    #     """
-    #     if intent == "greeting":
-    #         return True
-    #     if intent == "part_number" and len(results) > 0:
-    #         return True
-    #     if intent == "chassis" and intent == "chassis":
-    #         return True
-    #     return False
     def _is_intent_correct(self, intent: str, results: list[dict]) -> bool:
         """
         Improved accuracy rules:

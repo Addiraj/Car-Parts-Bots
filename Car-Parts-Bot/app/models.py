@@ -75,20 +75,13 @@ class IntentPrompt(db.Model):
     prompt_text = db.Column(db.Text, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
 
-
-# class MediaAttachment(db.Model, TimestampMixin):
-#     __tablename__ = "media_attachments"
-
-#     id = db.Column(db.Integer, primary_key=True)
-#     lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True)
-#     whatsapp_user_id = db.Column(db.String(64), index=True, nullable=False)
-#     media_id = db.Column(db.String(128), nullable=False)
-#     media_type = db.Column(db.String(32), nullable=False)
-#     content_type = db.Column(db.String(64), nullable=True)
-#     status = db.Column(db.String(32), default="pending", nullable=False)
-#     extracted_text = db.Column(db.Text, nullable=True)
-#     confidence = db.Column(db.Float, nullable=True)
-#     language = db.Column(db.String(16), nullable=True)
-#     error_message = db.Column(db.Text, nullable=True)
-
-#     lead = db.relationship("Lead", back_populates="attachments")
+class User(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    # The unique WhatsApp ID (e.g., "919876543210")
+    whatsapp_id = db.Column(db.String(50), unique=True, nullable=False)
+    # The saved VIN for this user
+    current_vin = db.Column(db.String(20), nullable=True)
+ 
+    def __repr__(self):
+        return f'<User {self.whatsapp_id}>'
