@@ -318,7 +318,7 @@ class GPTService:
         """
         clean_text = user_message.replace("\n", " ").replace("\r", " ").strip()
 
-            # language = self.translation_service.detect_language(user_message) or "en"
+        # language = self.translation_service.detect_language(user_message) or "en"
         language = self.translation_service.detect_language(clean_text) or "en"
         if not self.client:
             return {"needs_more_info": True, "message": "Please provide part number or chassis number."}

@@ -96,11 +96,15 @@ def process_whatsapp_message(user_id, content, msg_type="text"):
     # ---- IMAGE ----
     if msg_type == "image":
         result = process_image_media(content)
-
+        vin_no=result.get("value")
+        print(vin_no)
         if result["type"] == "vin":
             reply = (
-                "✅ VIN detected. Please wait while I fetch vehicle details."
-                if result["value"]
+                f"✅ Thank you for the VIN *{vin_no}*.\n\n"
+                "Please share the *item or part description* "
+                "(e.g., brake pads, oil filter, shock absorber) "
+                "so I can check the best available options and prices for you."
+                if vin_no
                 else "❌ I couldn’t detect a VIN. Please send a clearer image."
             )
             return send_whatsapp_text(user_id, reply)

@@ -174,8 +174,8 @@ def process_user_message(user_id: str, message: str) -> str:
     gpt = GPTService()
    
     JSON_ONLY_INTENTS = {
-        "part_number",
-        "chassis_number"
+        "part_number_handling_strict_matching",
+        "vin_handling"
     }
  
     # ---- 1. Intent Classification ----
@@ -198,7 +198,9 @@ def process_user_message(user_id: str, message: str) -> str:
     # ---- 3. Handle Data Intents ----
     if intent in JSON_ONLY_INTENTS:
         structured = gpt.generate_structured_request(message, intent)
-        entities = intent_data.get("entities", {})
+        # print("Structured data:", structured)
+        entities = structured.get("entities", {})
+
  
         # Safety check for entities
         if not entities:
@@ -211,7 +213,7 @@ def process_user_message(user_id: str, message: str) -> str:
         # ======================================================
         #  LOGIC 1: PART NUMBER (User gave explicit part code)
         # ======================================================
-        if intent == "part_number":
+        if intent == "part_number_handling_strict_matching":
             part_numbers = entities.get("part_numbers") or []
             if not part_numbers and entities.get("part_number"):
                 part_numbers = [entities.get("part_number")]
@@ -255,7 +257,7 @@ def process_user_message(user_id: str, message: str) -> str:
         # ======================================================
         #  LOGIC 2: CHASSIS NUMBER (Handling the Flow)
         # ======================================================
-        if intent == "chassis_number":
+        if intent == "vin_handling":
             chassis_number = entities.get("chassis")
            
             if not chassis_number or len(chassis_number) != 17:
