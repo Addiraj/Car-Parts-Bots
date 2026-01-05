@@ -23,3 +23,5 @@ PyJWT==2.10.1
 curl_cffi==0.14.0
 fuzzywuzzy==0.18.0
 python-levenshtein==0.27.3
+lxml==6.0.2
+aiohttp==3.13.3

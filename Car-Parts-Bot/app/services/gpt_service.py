@@ -14,9 +14,11 @@ import time
 from ..models import IntentPrompt  
 import hashlib
 from rapidfuzz import fuzz
+from ..redis_client import redis_client
+import hashlib
+import json
+
 class GPTService:
-
-
     def intent_cache_key(self, message: str) -> str:
         normalized = message.strip().lower()
         digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
@@ -104,9 +106,6 @@ class GPTService:
         Extract intent using DB-driven dynamic GPT classification.
         Fallback → "unknown" if low confidence or unsupported intent.
         """
-        from ..redis_client import redis_client
-        import hashlib
-        import json
 
         clean_text = user_message.strip()
 
@@ -154,7 +153,7 @@ class GPTService:
         text = normalize_text(user_message.lower())
         detected_brand = detect_brand(text, SUPPORTED_BRANDS)
         brand_detected = detected_brand is not None
-        print("BRAND DETECTED:", brand_detected)
+        print("BRAND DETECTED:", detected_brand)
         if brand_detected:
             return {
                 "intent": "brand_support_check",
@@ -166,10 +165,13 @@ class GPTService:
         # 2. Fast Path: Regex for Part Numbers
         # If it looks like a part number usage (mostly alphanumeric, dashes, short), skip GPT
         # Pattern: 4 to 20 chars, alphanumeric/dashes, no spaces or few spaces
-        if re.fullmatch(r"^[A-Z0-9\-\s/]{3,25}$", clean_text.upper()) and any(c.isdigit() for c in clean_text):
-             # Highly likely a part number
+        PART_NUMBER_REGEX = re.compile(
+            r"^[A-Z0-9]{2,}[A-Z0-9\-\.]{1,}$"
+        )
+        if (PART_NUMBER_REGEX.fullmatch(clean_text.upper()) and sum(c.isdigit() for c in clean_text) >= 2 and " " not in clean_text.strip()):
+             print("FAST PATH PART NUMBER MATCH")
              result = {
-                 "intent": "part_number",
+                 "intent": "part_number_handling_strict_matching",
                  "entities": {"part_numbers": [clean_text.upper()], "part_number": clean_text.upper()}, 
                  "language": "en", # Assume EN for codes
                  "confidence": 1.0,
@@ -191,7 +193,7 @@ class GPTService:
             return {"intent": "unknown", "entities": {}, "language": "en"}
         # Build dynamic summary text for GPT
         intent_list_text = "\n".join([f"- {key}" for key in intent_keys])
-
+        print("checking from DB intents:")
         system_prompt = f"""
                     You are an intent classification model for a car parts assistant.
 
@@ -428,7 +430,7 @@ class GPTService:
                 • *Item:* <EXACT Product Name>
                 • *Brand:* <EXACT Brand Name>
                 • *Price:* <EXACT Price Value>
-                4️⃣ Closing sentence offering images or assistance — translated
+                4️⃣ Closing sentence : If you need any help, I’m here to help you.😊”
                 """
 
         try:
@@ -517,7 +519,7 @@ class GPTService:
 
         # Check for part number pattern (alphanumeric, often with dashes)
         if re.search(r"\b[A-Z0-9\-]{4,}\b", message.upper()):
-            return {"intent": "part_number", "entities": {}, "language": language or "en"}
+            return {"intent": "part_number_handling_strict_matching", "entities": {}, "language": language or "en"}
 
         # Check for chassis/VIN pattern
         if "chassis" in message_lower or "vin" in message_lower:
@@ -637,3 +639,487 @@ class GPTService:
         except Exception as e:
             current_app.logger.warning(f"GPT error message failed: {e}, using translation")
             return self._translate_if_needed(english_message, language)
+# """
+# GPT/OpenAI service for natural language understanding and response formatting.
+# Optimized for production: handles concurrency, caching, strict JSON parsing,
+# and ensures backward compatibility with message_processor.py.
+# """
+
+# import json
+# import re
+# import time
+# import hashlib
+# from typing import Any, Dict, List, Optional
+# from openai import OpenAI
+# from flask import current_app
+# from rapidfuzz import fuzz
+# from ..models import IntentPrompt
+# from .translation_service import TranslationService
+
+# class GPTService:
+#     def __init__(self):
+#         self.client = None
+#         api_key = current_app.config.get("OPENAI_API_KEY")
+#         if api_key:
+#             self.client = OpenAI(api_key=api_key)
+#         else:
+#             current_app.logger.warning("OPENAI_API_KEY not found. GPT features will be disabled.")
+            
+#         self.translation_service = TranslationService()
+
+#     # ==========================
+#     # HELPER METHODS
+#     # ==========================
+
+#     def _get_redis(self):
+#         """Lazy load Redis to avoid circular import issues."""
+#         from ..redis_client import redis_client
+#         return redis_client
+
+#     def _intent_cache_key(self, message: str) -> str:
+#         """Create a consistent hash key for the message."""
+#         normalized = message.strip().lower()
+#         digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+#         return f"intent:v2:{digest}"
+
+#     def _record_metric(self, metric_name: str, value: int = 1):
+#         """Record metrics safely in Redis (Concurrency Safe)."""
+#         try:
+#             redis = self._get_redis()
+#             if metric_name == "latency":
+#                 # For latency, logging is preferred over simple counters
+#                 pass 
+#             else:
+#                 redis.incr(f"metrics:{metric_name}", value)
+#         except Exception:
+#             pass  # Fail silently on metrics
+
+#     def _get_active_intents_cached(self) -> List[Dict[str, str]]:
+#         """
+#         Fetch intents from DB and cache them in Redis for 5 minutes.
+#         Prevents hammering the DB on every single message.
+#         """
+#         redis = self._get_redis()
+#         cache_key = "config:active_intents"
+        
+#         # 1. Try Redis
+#         cached_data = redis.get(cache_key)
+#         if cached_data:
+#             return json.loads(cached_data)
+
+#         # 2. Fallback to DB
+#         active_prompts = IntentPrompt.query.filter_by(is_active=True).all()
+#         intents = [{"key": p.intent_key, "prompt": p.prompt_text} for p in active_prompts]
+        
+#         # 3. Save to Redis (TTL: 300 seconds / 5 mins)
+#         if intents:
+#             redis.setex(cache_key, 300, json.dumps(intents))
+            
+#         return intents
+
+#     # ==========================
+#     # CORE LOGIC
+#     # ==========================
+
+#     def get_fallback_menu(self, user_language: str = "en") -> str:
+#         """Return the static fallback menu, translated if needed."""
+#         base_message = (
+#             "*CarParts AI Support*🚀\n\n"
+#             "We assist with *auto spare parts* for:\n"
+#             "• BMW\n• Mercedes-Benz\n• Rolls-Royce\n• Mini Cooper\n• Honda\n\n"
+#             "Please share your *VIN number* or *part number*, and I’ll help you further.😊"
+#         )
+#         if not user_language or user_language.lower().startswith("en"):
+#             return base_message
+#         return self.translation_service.from_base_language(base_message, user_language)
+
+#     def extract_intent(self, user_message: str) -> Dict[str, Any]:
+#         """Determine user intent using Cache -> Regex -> GPT."""
+#         redis = self._get_redis()
+#         clean_text = user_message.strip()
+        
+#         # Detect Language ONCE
+#         language = self.translation_service.detect_language(clean_text) or "en"
+        
+#         # 1. Check Redis Cache
+#         cache_key = self._intent_cache_key(clean_text)
+#         cached = redis.get(cache_key)
+#         if cached:
+#             current_app.logger.info(f"Intent Cache Hit: {cache_key}")
+#             return json.loads(cached)
+
+#         self._record_metric("total_intent_checks")
+
+#         # 2. Local Brand Detection (Fast Path)
+#         SUPPORTED_BRANDS = {"bmw", "mercedes", "mercedes-benz", "benz", "rolls royce", "mini cooper", "honda"}
+#         normalized_text = re.sub(r"[^a-z0-9\s]", " ", clean_text.lower()).strip()
+        
+#         for brand in SUPPORTED_BRANDS:
+#             if fuzz.token_set_ratio(brand, normalized_text) >= 80:
+#                 return {
+#                     "intent": "brand_support_check",
+#                     "entities": {},
+#                     "language": language,
+#                     "confidence": 0.95,
+#                     "fallback_required": False
+#                 }
+
+#         # 3. Regex for Part Numbers (Fast Path)
+#         PART_NUMBER_REGEX = re.compile(r"^[A-Z0-9]{2,}[A-Z0-9\-\.]{1,}$")
+#         if (PART_NUMBER_REGEX.fullmatch(clean_text.upper()) 
+#             and sum(c.isdigit() for c in clean_text) >= 2 
+#             and " " not in clean_text):
+            
+#             result = {
+#                 "intent": "part_number_handling_strict_matching",
+#                 "entities": {"part_numbers": [clean_text.upper()], "part_number": clean_text.upper()},
+#                 "language": language,
+#                 "confidence": 1.0,
+#                 "fallback_required": False
+#             }
+#             redis.setex(cache_key, 3600, json.dumps(result))
+#             return result
+
+#         if not self.client:
+#             return self._fallback_intent(clean_text, language)
+
+#         # 4. GPT Classification
+#         intents_data = self._get_active_intents_cached()
+#         intent_keys = [i["key"] for i in intents_data]
+        
+#         if not intent_keys:
+#             current_app.logger.error("No active intents found in DB/Cache!")
+#             return self._fallback_intent(clean_text, language)
+
+#         intent_list_text = "\n".join([f"- {key}" for key in intent_keys])
+        
+#         system_prompt = f"""
+#         You are an intent classification model for auto parts.
+#         Valid intents:
+#         {intent_list_text}
+
+#         Output JSON only:
+#         {{
+#             "intent": "<intent_key_or_unknown>",
+#             "confidence": <float 0.0-1.0>
+#         }}
+#         """
+
+#         try:
+#             start_time = time.time()
+#             response = self.client.chat.completions.create(
+#                 model=current_app.config.get("OPENAI_MODEL", "gpt-4o-mini"),
+#                 messages=[
+#                     {"role": "system", "content": system_prompt},
+#                     {"role": "user", "content": user_message},
+#                 ],
+#                 response_format={"type": "json_object"},
+#                 temperature=0.0,
+#                 max_tokens=100,
+#             )
+#             self._record_metric("latency_ms", int((time.time() - start_time) * 1000))
+
+#             data = json.loads(response.choices[0].message.content)
+#             intent = data.get("intent", "unknown")
+#             confidence = float(data.get("confidence", 0.0))
+
+#             fallback_required = (
+#                 intent not in intent_keys 
+#                 or intent == "unknown" 
+#                 or confidence < 0.60
+#             )
+
+#             result = {
+#                 "intent": intent,
+#                 "entities": {},
+#                 "language": language,
+#                 "confidence": confidence,
+#                 "fallback_required": fallback_required,
+#             }
+
+#             if not fallback_required:
+#                 redis.setex(cache_key, 3600, json.dumps(result))
+
+#             return result
+
+#         except Exception as e:
+#             current_app.logger.error(f"GPT Intent Extraction Failed: {e}")
+#             return self._fallback_intent(clean_text, language)
+
+#     def generate_plain_response(self, user_message: str, intent_key: str) -> str:
+#         """Generate text response using DB prompt."""
+#         if not self.client:
+#             return ""
+
+#         intents_data = self._get_active_intents_cached()
+#         prompt_text = next((i["prompt"] for i in intents_data if i["key"] == intent_key), None)
+
+#         if not prompt_text:
+#             return ""
+
+#         try:
+#             response = self.client.chat.completions.create(
+#                 model=current_app.config.get("OPENAI_MODEL", "gpt-4o-mini"),
+#                 messages=[
+#                     {"role": "system", "content": prompt_text},
+#                     {"role": "user", "content": user_message},
+#                 ],
+#                 temperature=0.3,
+#                 max_tokens=400,
+#             )
+#             return response.choices[0].message.content.strip()
+#         except Exception as e:
+#             current_app.logger.error(f"GPT Plain Response Failed: {e}")
+#             return ""
+
+#     def generate_structured_request(self, user_message: str, intent_key: str, language: str = "en") -> dict:
+#         """Extract entities or ask clarifying questions."""
+#         if not self.client:
+#             return {"needs_more_info": True, "message": self.get_fallback_menu(language)}
+
+#         intents_data = self._get_active_intents_cached()
+#         prompt_text = next((i["prompt"] for i in intents_data if i["key"] == intent_key), None)
+
+#         if not prompt_text:
+#              return {"needs_more_info": True, "message": self.get_fallback_menu(language)}
+
+#         try:
+#             response = self.client.chat.completions.create(
+#                 model=current_app.config.get("OPENAI_MODEL", "gpt-4o-mini"),
+#                 messages=[
+#                     {"role": "system", "content": prompt_text},
+#                     {"role": "user", "content": user_message},
+#                 ],
+#                 response_format={"type": "json_object"},
+#                 temperature=0.0,
+#                 max_tokens=200,
+#             )
+#             return json.loads(response.choices[0].message.content)
+
+#         except Exception as e:
+#             current_app.logger.error(f"GPT Structured Req Failed: {e}")
+#             return {"needs_more_info": True, "message": self.get_fallback_menu(language)}
+
+#     def format_response(self, search_results: list[dict], intent: str, language: str = "en") -> str:
+#         """
+#         Format search results into a natural language response.
+#         Supports multilingual responses with strict strict formatting rules.
+#         """
+#         if not self.client:
+#             return self._fallback_response(search_results, language)
+
+#         model = current_app.config.get("OPENAI_MODEL", "gpt-4o-mini")
+
+#         # 1. Build context about results (Exactly as per your logic)
+#         results_text = ""
+#         if search_results:
+#             for r in search_results[:5]:  # Limit to top 5 for context
+#                 results_text += f"- {r.get('name', 'N/A')} (Brand Part # {r.get('brand_part_no', 'N/A')})"
+#                 if r.get("price"):
+#                     results_text += f" - Price: {r.get('price')} AED"
+#                 if r.get("brand"):
+#                     results_text += f" - Brand: {r.get('brand')}"
+#                 results_text += "\n"
+#         else:
+#             results_text = "No parts found matching your query."
+
+#         # 2. Strict User Prompt
+#         user_prompt = f"""
+#         You are formatting car part search results into a professional, conversational WhatsApp-style message.
+
+#         🚨 NON-NEGOTIABLE RULES ABOUT LANGUAGE 🚨
+#         - Respond ONLY in this language: {language}
+#         - Translate ONLY:
+#         ✔ Greetings
+#         ✔ Explanations
+#         ✔ UI labels (e.g. "Item", "Brand", "Price")
+#         - DO NOT translate database fields:
+#         ✖ Product names
+#         ✖ Brand names
+#         ✖ Part numbers
+#         ✖ Price values
+#         - Product details MUST remain EXACTLY as given in the input text, including uppercase.
+
+#         🚨 VERY IMPORTANT: Product descriptions ARE NOT normal sentences.
+#         ABSOLUTELY DO NOT modify, rewrite, localize, or translate product names, brand names, price currency, or part numbers.
+#         You can add translated label names before them, but NEVER alter the product field values.
+
+#         ---
+
+#         Formatting rules:
+#         - Use bullet points
+#         - Use *bold* (single asterisk) for labels ONLY
+#         - Do not include markdown syntax like **bold**
+#         - Add clean line breaks for easy reading
+#         - Use minimal emojis (1 or 2 max)
+
+#         ---
+
+#         Here are the database results (DO NOT MODIFY THESE VALUES):
+
+#         {results_text}
+
+#         ---
+
+#         Response Structure:
+#         1️⃣ Friendly greeting in {language}
+#         2️⃣ Short translated helper line
+#         3️⃣ Bullet list for each item:
+#         • *Item:* <EXACT Product Name>
+#         • *Brand:* <EXACT Brand Name>
+#         • *Price:* <EXACT Price Value>
+#         4️⃣ Closing sentence offering images or assistance — translated
+#         """
+
+#         try:
+#             start_time = time.time()
+#             response = self.client.chat.completions.create(
+#                 model=model,
+#                 messages=[
+#                     {
+#                         "role": "system",
+#                         "content": (
+#                             "You are a multilingual WhatsApp car parts assistant. "
+#                             "Follow EXACTLY the rules in the user message: "
+#                             "Translate ONLY UI text. "
+#                             "DO NOT translate product names, brand names, part numbers, or prices. "
+#                             f"User language for UI labels and sentences must be: {language}."
+#                         ),
+#                     },
+#                     {"role": "user", "content": user_prompt},
+#                 ],
+#                 temperature=0.7,
+#                 max_tokens=500,
+#             )
+            
+#             # Record latency using our optimized metric method
+#             self._record_metric("latency_ms", int((time.time() - start_time) * 1000))
+            
+#             return response.choices[0].message.content.strip()
+
+#         except Exception as e:
+#             current_app.logger.error(f"GPT Formatting Failed: {e}")
+#             return self._fallback_response(search_results, language)
+#     # ==========================
+#     # RESTORED MISSING METHODS
+#     # ==========================
+
+#     def format_multi_part_response(self, results_by_pn: dict, language: str = "en") -> str:
+#         """
+#         Format grouped results for multiple part numbers in one WhatsApp message.
+#         Restored to fix AttributeError in message_processor.py.
+#         """
+#         response = "Hello! 😊 Here are the car parts you requested:\n\n"
+
+#         for pn, items in results_by_pn.items():
+#             response += f"🔹 *{pn}*\n"
+            
+#             if not items:
+#                 response += "  - ❌ Not found\n\n"
+#                 continue
+            
+#             for p in items:
+#                 name = p.get("name", "N/A")
+#                 brand = p.get("brand", "N/A")
+#                 price = p.get("price", "N/A")
+#                 qty = p.get("qty", "N/A")
+
+#                 response += f"  - *{name}* | {brand} | {price} AED | Qty: {qty}\n"
+
+#             response += "\n"
+
+#         response += "Would you like to see more details about any of these parts? 🚗✨"
+
+#         if language and not language.lower().startswith("en"):
+#             response = self.translation_service.from_base_language(response, language)
+
+#         return response.strip()
+
+#     def record_intent_accuracy(self, intent: str, search_results: list[dict]):
+#         """
+#         Records intent accuracy stats. 
+#         Refactored to use Redis via _record_metric for thread safety.
+#         """
+#         self._record_metric("total_intent_checks")
+
+#         # Logic: Greeting is valid; Search intents are valid only if results exist
+#         is_correct = False
+#         if intent == "greeting":
+#             is_correct = True
+#         elif intent in ("part_number", "car_part", "chassis") and search_results:
+#             is_correct = True
+
+#         if is_correct:
+#             self._record_metric("correct_intent_predictions")
+#         else:
+#             self._record_metric("incorrect_intent_predictions")
+
+#     def generate_greeting(self, language: str = "en") -> str:
+#         """Generate greeting using GPT or fallback."""
+#         if not self.client:
+#             return self.translation_service.from_base_language(
+#                 "Hello! How can I help you find car parts today?", language
+#             )
+
+#         try:
+#             response = self.client.chat.completions.create(
+#                 model=current_app.config.get("OPENAI_MODEL", "gpt-4o-mini"),
+#                 messages=[
+#                     {"role": "system", "content": f"You are a helpful car parts assistant. Respond in {language} language."},
+#                     {"role": "user", "content": f"Generate a friendly short greeting. Language: {language}"}
+#                 ],
+#                 temperature=0.7,
+#                 max_tokens=100,
+#             )
+#             return response.choices[0].message.content.strip()
+#         except Exception:
+#             return self.translation_service.from_base_language(
+#                 "Hello! How can I help you find car parts today?", language
+#             )
+
+#     def generate_error_message(self, error_type: str, language: str = "en") -> str:
+#         """Generate error message using translation service."""
+#         errors = {
+#             "chassis_not_found": "Sorry, we couldn't find vehicle information for this chassis number.",
+#             "no_parts_found": "Sorry, we couldn't find any parts matching your query.",
+#             "general_error": "Sorry, we encountered an error. Please try again later."
+#         }
+#         english_message = errors.get(error_type, errors["general_error"])
+        
+#         # Optimization: Use Translation Service instead of wasting a GPT call on static errors
+#         return self.translation_service.from_base_language(english_message, language)
+
+#     # ==========================
+#     # FALLBACKS (No GPT)
+#     # ==========================
+
+#     def _fallback_intent(self, message: str, language: str) -> dict:
+#         """Simple keyword matching when GPT fails."""
+#         msg_lower = message.lower()
+#         intent = "car_part" # Default
+        
+#         if any(x in msg_lower for x in ["hi", "hello", "hey", "مرحبا"]):
+#             intent = "greeting"
+#         elif "vin" in msg_lower or "chassis" in msg_lower:
+#             intent = "chassis"
+        
+#         return {
+#             "intent": intent, 
+#             "entities": {}, 
+#             "language": language, 
+#             "confidence": 0.5, 
+#             "fallback_required": True
+#         }
+
+#     def _fallback_response(self, results: list, language: str) -> str:
+#         """Simple string formatting."""
+#         if not results:
+#             text = "Sorry, no parts found."
+#         else:
+#             text = f"Found {len(results)} parts:\n" + "\n".join(
+#                 [f"- {r.get('name')} ({r.get('brand')}) - {r.get('price')} AED" for r in results[:5]]
+#             )
+        
+#         if language != "en":
+#             return self.translation_service.translate(text, language)
+#         return text
