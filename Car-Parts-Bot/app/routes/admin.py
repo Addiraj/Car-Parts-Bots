@@ -12,18 +12,6 @@ from flask import make_response
 from datetime import datetime, timedelta, timezone
 admin_bp = Blueprint("admin", __name__)
 
-
-# def require_admin_token(f):
-#     """Decorator to require admin token for admin endpoints."""
-#     @wraps(f)
-#     def decorated_function(*args, **kwargs):
-#         token = request.headers.get("Authorization")
-#         expected_token = current_app.config.get("ADMIN_TOKEN", "admin-token")
-#         if not token or token != f"Bearer {expected_token}":
-#             return jsonify({"error": "Unauthorized"}), 401
-#         return f(*args, **kwargs)
-#     return decorated_function
-
 JWT_SECRET = os.getenv("JWT_SECRET")
 ADMIN_SECRET = os.getenv("ADMIN_SECRET")
 

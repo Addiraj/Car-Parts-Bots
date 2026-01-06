@@ -10,7 +10,6 @@ from app.redis_client import redis_client as redis_rq
 
 # Create Flask app so that tasks can use current_app
 app = create_app()
-# print("OPENAI KEY IN WORKER =", app.config.get("OPENAI_API_KEY"))
 
 if __name__ == "__main__":
     with app.app_context():

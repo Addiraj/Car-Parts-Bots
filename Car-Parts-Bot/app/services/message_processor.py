@@ -4,7 +4,7 @@ from app.models import Stock, User
 from app.services.gpt_service import GPTService
 from app.services.lead_service import LeadService
 
-# 🚀 UPDATED: Import Playwright scraper instead of old HTTP scraper
+# 🚀 UPDATED: Import Scrape.do scraper instead of old HTTP scraper
 from app.services.scraper.async_partsouq_scraper import get_scraper
 
 from sqlalchemy import func

@@ -6,11 +6,7 @@ from typing import Literal
 from flask import current_app
 from openai import OpenAI
 
-
-# ImageIntent = Literal["vin_plate", "dashboard_warning", "unknown"]
-
 ImageIntent = Literal["vin_plate", "dashboard_warning", "headlight_part", "unknown"]
-
 
 def detect_image_intent(img_bytes: bytes, content_type: str) -> ImageIntent:
     """
@@ -24,43 +20,6 @@ def detect_image_intent(img_bytes: bytes, content_type: str) -> ImageIntent:
     image_b64 = base64.b64encode(img_bytes).decode()
     mime = content_type or "image/jpeg"
 
-    # resp = client.chat.completions.create(
-    #     model=model,
-    #     temperature=0,
-    #     max_tokens=50,
-    #     messages=[
-    #         {
-    #             "role": "system",
-    #             "content": (
-    #                 "You are an image classifier for automotive support.\n"
-    #                 "Classify the image ONLY.\n"
-    #                 "Return strict JSON."
-    #             ),
-    #         },
-    #         {
-    #             "role": "user",
-    #             "content": [
-    #                 {
-    #                     "type": "text",
-    #                     "text": (
-    #                         "Classify this image into ONE category:\n"
-    #                         "- vin_plate (VIN/chassis number label)\n"
-    #                         "- dashboard_warning (dashboard warning light icon)\n"
-    #                         "- unknown\n\n"
-    #                         "Return JSON:\n"
-    #                         "{ \"type\": \"vin_plate|dashboard_warning|unknown\" }"
-    #                     ),
-    #                 },
-    #                 {
-    #                     "type": "image_url",
-    #                     "image_url": {
-    #                         "url": f"data:{mime};base64,{image_b64}"
-    #                     },
-    #                 },
-    #             ],
-    #         },
-    #     ],
-    # )
     resp = client.chat.completions.create(
             model=model,
             temperature=0,
@@ -119,8 +78,7 @@ def detect_image_intent(img_bytes: bytes, content_type: str) -> ImageIntent:
                 },
             ],
         )
-
-
+    
     payload = resp.choices[0].message.content.strip()
 
     try:

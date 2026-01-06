@@ -6,7 +6,7 @@ from typing import Dict, Any
 from flask import current_app
 from openai import OpenAI
 
-from .warning_light_knowledge import WARNING_LIGHTS
+# from .warning_light_knowledge import WARNING_LIGHTS
 
 
 # warning_light_vision.py
@@ -28,9 +28,6 @@ Rules:
 - If uncertain, say so clearly
 - Prefer stopping the vehicle when risk is high
 """
-
-
-
 def run_warning_light_gpt(img_bytes: bytes, content_type: str) -> dict:
     client = OpenAI(api_key=current_app.config["OPENAI_API_KEY"])
     model = "gpt-4o"  # Correct model for vision reasoning
@@ -112,10 +109,3 @@ def format_warning_gpt(data: dict) -> str:
         )
     )
 
-# def _safe_parse(payload: str) -> Dict[str, Any]:
-#     try:
-#         if payload.startswith("```"):
-#             payload = "\n".join(payload.splitlines()[1:-1])
-#         return json.loads(payload)
-#     except Exception:
-#         return {"type": "unknown", "confidence": 0.4}

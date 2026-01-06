@@ -19,14 +19,4 @@ def send_whatsapp_text(wa_id: str, text: str):
         "type": "text",
         "text": {"body": text},
     }
-
-    # redis_client.publish(
-    #     "chatbot_events",
-    #     json.dumps({
-    #         "type": "reply",
-    #         "to": wa_id,
-    #         "text": text
-    #     })
-    # )
-
     requests.post(url, headers=headers, json=data, timeout=10)

@@ -52,21 +52,6 @@ def detect_language_with_gpt(text: str) -> str:
     return resp.choices[0].message.content.strip()
 
 
-# def transcribe_audio(audio_bytes: bytes):
-#     client = _get_client()
-
-#     # Send to Whisper transcription API
-#     response = client.audio.transcriptions.create(
-#         model="gpt-4o-transcribe",
-#         file=("audio.ogg", audio_bytes)
-#     )
-
-#     text = response.text
-#     language = response.language  # ISO code like "en", "hi", "gu"
-
-#     return text, language
-
-
 def clean_voice_text(raw_text: str, user_lang: str):
     client = _get_client()
 
