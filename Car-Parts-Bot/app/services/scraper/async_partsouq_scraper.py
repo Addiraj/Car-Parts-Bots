@@ -278,6 +278,10 @@ from typing import Dict, List, Optional
 from bs4 import BeautifulSoup
 from rapidfuzz import process, fuzz
 from urllib.parse import urljoin
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ---------------- CONFIG ----------------
 
@@ -287,13 +291,13 @@ MAX_DEPTH = 3
 SCRAPE_DO_API = "http://api.scrape.do"
 
 SCRAPE_DO_TOKENS = [
-    "b8b82944bdde4e5e84d9ef4379bf4cc64521475f2ef",#aditya
-    "92bfe481a83b4ecaaf25ce81169aeb33c6e4520174a",#client account
-    "4faceb5bd9a04e57bc54ecb9cedf0215e10d0e18fe3",#mann.soni@koncpt.ai
-    "edbbff97228147c4b05fbb1f809eee93e62420330ab",
-    "145c2d55e6df46faaabae263f3a788a4f8d6c8d2441",
-    "5a1d4c188e984a31a895675264b7f16e6e04b00cb25",
+    t.strip()
+    for t in os.getenv("SCRAPE_DO_TOKENS", "").split(",")
+    if t.strip()
 ]
+if not SCRAPE_DO_TOKENS:
+    raise RuntimeError("SCRAPE_DO_TOKENS not found in .env file")
+
 
 CATEGORY_MAP = {
     "anti-freeze": ["cooling", "radiator", "maintenance"],
