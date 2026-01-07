@@ -160,32 +160,22 @@ def process_user_message(user_id: str, message: str) -> str:
 
             print(f"DEBUG: Searching for '{part_name}' with VIN {chassis_number}")
 
-            # 🚀 Async Scrape.do scraper
+            # 🚀 Async Scraper runner (SAFE & CORRECT)
             try:
                 scraper = get_scraper()
-
                 try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        search_result = asyncio.run(
-                            scraper.search_part(chassis_number, part_name)
-                        )
-                    else:
-                        search_result = loop.run_until_complete(
-                            scraper.search_part(chassis_number, part_name)
-                        )
-                except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    search_result = loop.run_until_complete(
-                        scraper.search_part(chassis_number, part_name)
-                    )
+                    scraper = get_scraper()
+                    search_result = scraper.search_part(chassis_number, part_name)
+                except Exception as e:
+                    print(f"[!] Scraper error: {e}")
+                    return "Our system encountered an error. Our team will contact you shortly. 😊"
 
             except Exception as e:
                 print(f"[!] Scraper error: {e}")
                 return "Our system encountered an error. Our team will contact you shortly. 😊"
 
             print("Search result:", search_result)
+
 
             # --- Error handling ---
             if "error" in search_result:
