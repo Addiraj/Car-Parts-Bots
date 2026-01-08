@@ -6,12 +6,13 @@ from app.services.lead_service import LeadService
 
 # 🚀 UPDATED: Import Scrape.do scraper instead of old HTTP scraper
 from app.services.scraper.async_partsouq_scraper import get_scraper
-
+from app.services.lead_service import lead_service
 from sqlalchemy import func
 import re
 import asyncio
-
-
+# from app.services.gpt_service import gpt
+def normalize_part_number(pn: str) -> str:
+    return re.sub(r'[^A-Z0-9]', '', pn.upper()) if pn else ''
 def process_user_message(user_id: str, message: str) -> str:
     """
     Main message processing function.
@@ -32,17 +33,17 @@ def process_user_message(user_id: str, message: str) -> str:
     print("Intent detected:", intent)
     
     # Save lead
-    LeadService().create_lead(
+    lead_service.create_lead(
         whatsapp_user_id=user_id,
         query_text=message,
         intent=intent
     )
- 
+    print("Lead saved.")
     # ---- 2. Fallback for Low Confidence ----
     if intent_data.get("fallback_required", False):
         if intent != "brand_support_check":
             return gpt.get_fallback_menu(language)
- 
+    
     # ---- 3. Handle Data Intents ----
     if intent in JSON_ONLY_INTENTS:
         structured = gpt.generate_structured_request(message, intent)
@@ -67,34 +68,72 @@ def process_user_message(user_id: str, message: str) -> str:
             if alpha_chars / total_chars > 0.6:
                 intent = "brand_support_check"
 
+            # part_numbers = entities.get("part_numbers") or []
+            # if not part_numbers and entities.get("part_number"):
+            #     part_numbers = [entities.get("part_number")]
+ 
+            # if part_numbers:
+            #     results_by_pn = {}
+            #     for pn in part_numbers:
+            #         pn_clean = pn.strip().upper()
+                   
+            #         # Query Local Stock Database
+            #         parts = (
+            #             db.session.query(Stock)
+            #             .filter(func.upper(Stock.brand_part_no) == pn_clean)
+            #             .limit(10)
+            #             .all()
+            #         )
+                   
+            #         results_by_pn[pn_clean] = [
+            #             {
+            #                 "name": p.item_desc,
+            #                 "part_number": p.brand_part_no,
+            #                 "brand": p.brand,
+            #                 "price": float(p.price) if p.price else None,
+            #                 "qty": p.qty
+            #             }
+            #             for p in parts
+            #         ]
+            print("Entities extracted for part number handling:", entities.get("part_numbers"))
+            # -------- Extract part numbers --------
             part_numbers = entities.get("part_numbers") or []
             if not part_numbers and entities.get("part_number"):
                 part_numbers = [entities.get("part_number")]
- 
+
+            results_by_pn = {}
+
             if part_numbers:
-                results_by_pn = {}
+                # 🔒 Build normalized DB expression ONCE
+                normalized_db_pn = func.upper(Stock.brand_part_no)
+                for ch in ['-', ' ', '+', '%', '$', '_', '/', '.', ',', ':']:
+                    normalized_db_pn = func.replace(normalized_db_pn, ch, '')
+
                 for pn in part_numbers:
-                    pn_clean = pn.strip().upper()
-                   
-                    # Query Local Stock Database
+                    pn_clean = normalize_part_number(pn)
+
+                    if not pn_clean:
+                        results_by_pn[pn_clean] = []
+                        continue
+
                     parts = (
                         db.session.query(Stock)
-                        .filter(func.upper(Stock.brand_part_no) == pn_clean)
+                        .filter(normalized_db_pn == pn_clean)
                         .limit(10)
                         .all()
                     )
-                   
+                    if len(parts) == 0:
+                        return f"Sorry, we couldn't find any parts matching the part number '{pn}'. Our team will assist you shortly. 😊"
                     results_by_pn[pn_clean] = [
                         {
                             "name": p.item_desc,
                             "part_number": p.brand_part_no,
                             "brand": p.brand,
-                            "price": float(p.price) if p.price else None,
+                            "price": float(p.price) if p.price is not None else None,
                             "qty": p.qty
                         }
                         for p in parts
                     ]
- 
                 # No results found
                 if all(len(v) == 0 for v in results_by_pn.values()):
                     return gpt.format_response([], intent, language)
@@ -104,8 +143,14 @@ def process_user_message(user_id: str, message: str) -> str:
                     return gpt.format_multi_part_response(results_by_pn, language)
  
                 # Single part number
-                only = results_by_pn[part_numbers[0].strip().upper()]
+                key = normalize_part_number(part_numbers[0])
+                only = results_by_pn.get(key, [])
+
                 return gpt.format_response(only, intent, language)
+                # Single part number 
+                # only = results_by_pn[part_numbers[0].strip().upper()] 
+                # return gpt.format_response(only, intent, language)
+
  
         # ======================================================
         #  LOGIC 2: VIN/CHASSIS HANDLING
@@ -219,7 +264,7 @@ def process_user_message(user_id: str, message: str) -> str:
 
 
             return gpt.format_response(formatted_data, "part_number", language)
- 
+    print("HOLA SLOW")
     # ---- 4. Reply Only Intents (Greetings, brand support, etc.) ----
     reply = gpt.generate_plain_response(message, intent)
     if not reply:
@@ -228,5 +273,5 @@ def process_user_message(user_id: str, message: str) -> str:
     # Translate if needed (GPT already handles language in most cases)
     if language and language != "en":
         reply = gpt.translation_service.translate(reply, language)
-    
+    print("FINAL REPLY:")
     return reply

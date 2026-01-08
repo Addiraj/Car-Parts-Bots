@@ -23,7 +23,10 @@ class GPTService:
         normalized = message.strip().lower()
         digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
         return f"intent:v2:{digest}"
+    # import re
 
+    def normalize_for_detection(self, text: str) -> str:
+        return re.sub(r'[^A-Za-z0-9]', '', text)
 
     @staticmethod
     def get_fallback_menu(user_language: str = "en") -> str:
@@ -256,7 +259,7 @@ class GPTService:
             return ""
 
         system_prompt = row.prompt_text
-
+        print("TIME FOR GPT")
         try:
             response = self.client.chat.completions.create(
                 model=current_app.config.get("OPENAI_MODEL", "gpt-4o-mini"),
@@ -282,7 +285,7 @@ class GPTService:
         If missing required fields → GPT creates question for user.
         """
         clean_text = user_message.replace("\n", " ").replace("\r", " ").strip()
-
+        print("DETEECTED CLEAN TEXT",clean_text)
         # language = self.translation_service.detect_language(user_message) or "en"
         language = self.translation_service.detect_language(clean_text) or "en"
         if not self.client:
@@ -295,28 +298,26 @@ class GPTService:
             return {"needs_more_info": True, "message": self.get_fallback_menu(language)}
 
         system_prompt = row.prompt_text
-
+        detect_text = self.normalize_for_detection(user_message)
+        print("DETEECTED text",detect_text)
         try:
             response = self.client.chat.completions.create(
-                model=current_app.config.get("OPENAI_MODEL", "gpt-4o-mini"),
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message},
-                ],
-                # response_format={"type": "json_object"},  # enforces JSON entities
-                temperature=0.0,
-                max_tokens=200,
-            )
-
+            model=current_app.config.get("OPENAI_MODEL", "gpt-4o-mini"),
+            messages=[
+                {
+                    "role": "system",
+                    "content": [{"type": "text", "text": system_prompt}],
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": detect_text}],
+                },
+            ],
+            temperature=0.0,
+            max_tokens=200,
+        )
             data = json.loads(response.choices[0].message.content)
             print("Structured data extracted:", data)
-            # Example expected output JSON:
-            # {
-            #   "entities": { "part_number": "90915YZZE2" },
-            #   "needs_more_info": false,
-            #   "message": ""
-            # }
-
             return data
 
         except Exception as e:

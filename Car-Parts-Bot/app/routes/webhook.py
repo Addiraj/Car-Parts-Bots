@@ -67,7 +67,7 @@ def receive_message():
                     continue
 
                 msg_type = msg.get("type")
-
+                # print("MSG TYPE",msg_type)
                 if msg_type == "text":
                     text = msg["text"]["body"].strip().upper()
                     try:

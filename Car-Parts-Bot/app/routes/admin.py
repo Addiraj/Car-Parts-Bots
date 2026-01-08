@@ -148,7 +148,7 @@ def list_prompts():
     return jsonify([
         {
             "id": p.id,
-            "intent_key": p.intent_key,
+            "display_name": p.display_name,
             "prompt_text": p.prompt_text,
             "is_active": p.is_active,
         }
@@ -156,28 +156,80 @@ def list_prompts():
     ])
 
 
+# @admin_bp.post("/prompts")
+# @admin_required
+# def create_prompt():
+#     data = request.json or {}
+#     intent_key = data.get("intent_key", "").strip().lower()
+#     prompt_text = data.get("prompt_text", "").strip()
+
+#     if not intent_key or not prompt_text:
+#         return jsonify({"error": "intent_key and prompt_text are required"}), 400
+
+#     if IntentPrompt.query.filter_by(intent_key=intent_key).first():
+#         return jsonify({"error": "Intent key already exists"}), 400
+
+#     prompt = IntentPrompt(
+#         intent_key=intent_key,
+#         prompt_text=prompt_text,
+#         is_active=data.get("is_active", True),
+#     )
+#     db.session.add(prompt)
+#     db.session.commit()
+
+#     return jsonify({"message": "Prompt created successfully", "id": prompt.id}), 201
+
+
+# @admin_bp.put("/prompts/<int:prompt_id>")
+# @admin_required
+# def update_prompt(prompt_id):
+#     prompt = IntentPrompt.query.get(prompt_id)
+#     if not prompt:
+#         return jsonify({"error": "Prompt not found"}), 404
+
+#     data = request.json or {}
+
+#     if "intent_key" in data:
+#         prompt.intent_key = data["intent_key"].strip().lower()
+
+#     if "prompt_text" in data:
+#         prompt.prompt_text = data["prompt_text"].strip()
+
+#     db.session.commit()
+
+#     return jsonify({"message": "Prompt updated successfully"})
 @admin_bp.post("/prompts")
 @admin_required
 def create_prompt():
     data = request.json or {}
+
     intent_key = data.get("intent_key", "").strip().lower()
+    display_name = data.get("display_name", "").strip()
     prompt_text = data.get("prompt_text", "").strip()
 
-    if not intent_key or not prompt_text:
-        return jsonify({"error": "intent_key and prompt_text are required"}), 400
+    if not intent_key or not display_name or not prompt_text:
+        return jsonify({
+            "error": "intent_key, display_name and prompt_text are required"
+        }), 400
 
+    # 🔒 intent_key must be unique
     if IntentPrompt.query.filter_by(intent_key=intent_key).first():
         return jsonify({"error": "Intent key already exists"}), 400
 
     prompt = IntentPrompt(
         intent_key=intent_key,
+        display_name=display_name,
         prompt_text=prompt_text,
         is_active=data.get("is_active", True),
     )
+
     db.session.add(prompt)
     db.session.commit()
 
-    return jsonify({"message": "Prompt created successfully", "id": prompt.id}), 201
+    return jsonify({
+        "message": "Prompt created successfully",
+        "id": prompt.id
+    }), 201
 
 
 @admin_bp.put("/prompts/<int:prompt_id>")
@@ -189,11 +241,20 @@ def update_prompt(prompt_id):
 
     data = request.json or {}
 
+    # ❌ DO NOT allow intent_key update
     if "intent_key" in data:
-        prompt.intent_key = data["intent_key"].strip().lower()
+        return jsonify({
+            "error": "intent_key cannot be modified once created"
+        }), 400
+
+    if "display_name" in data:
+        prompt.display_name = data["display_name"].strip()
 
     if "prompt_text" in data:
         prompt.prompt_text = data["prompt_text"].strip()
+
+    if "is_active" in data:
+        prompt.is_active = bool(data["is_active"])
 
     db.session.commit()
 

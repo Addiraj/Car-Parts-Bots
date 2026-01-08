@@ -69,11 +69,17 @@ class Stock(db.Model):
 
 class IntentPrompt(db.Model):
     __tablename__ = "intent_prompts"
-
     id = db.Column(db.Integer, primary_key=True)
+    # machine-safe
     intent_key = db.Column(db.String(100), unique=True, nullable=False)
+    # human-friendly
+    display_name = db.Column(db.String(255), nullable=False)
     prompt_text = db.Column(db.Text, nullable=False)
-    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+    # id = db.Column(db.Integer, primary_key=True)
+    # intent_key = db.Column(db.String(100), unique=True, nullable=False)
+    # prompt_text = db.Column(db.Text, nullable=False)
+    # is_active = db.Column(db.Boolean, default=True, nullable=False)
 
 class User(db.Model):
     __tablename__ = 'users'
