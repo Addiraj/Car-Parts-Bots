@@ -225,7 +225,7 @@ function PromptManager({ onLogout }) {
             <table className="min-w-full border">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="p-3 text-left">Intent Key</th>
+                  <th className="p-3 text-left">Prompt Name</th>
                   <th className="p-3 text-left">Status</th>
                   <th className="p-3 text-left">Actions</th>
                 </tr>
@@ -233,8 +233,10 @@ function PromptManager({ onLogout }) {
               <tbody>
                 {prompts.map((p) => (
                   <tr key={p.id} className="border-t">
-                    <td className="p-3 font-medium">{p.intent_key}</td>
-
+                    <td className="p-3">
+                      <div className="font-medium">{p.display_name}</div>
+                      {/* <div className="text-xs text-gray-500">{p.intent_key}</div> */}
+                    </td>
                     {/* <td className="p-3">
                       <button
                         onClick={() => handleToggle(p.id)}
