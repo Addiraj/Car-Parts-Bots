@@ -2,12 +2,16 @@ import requests
 from lxml import html
 import urllib.parse
 from typing import Dict, Optional
-
+from dotenv import load_dotenv
+import os
 # ================= CONFIG =================
+load_dotenv()
 
 BASE_URL = "https://partsouq.com"
 SCRAPER_API_BASE = "http://api.scraperapi.com"
-SCRAPER_API_KEY = "0e996e0685505fe8bacc4e420de47d81"
+
+
+SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
 
 HEADERS = {
     "User-Agent": (
