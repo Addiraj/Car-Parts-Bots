@@ -79,6 +79,7 @@ from .services.whatsapp_sender import send_whatsapp_text
 from .services.media_service import process_image_media, download_whatsapp_media
 from .services.whisper_service import transcribe_audio, clean_voice_text
 from .services.media_utils import get_media_url
+from .services.intent_formater import img_format_response
 # from app import create_app
 
 # _app = create_app()
@@ -96,20 +97,12 @@ def process_whatsapp_message(user_id, content, msg_type="text"):
     # ---- IMAGE ----
     if msg_type == "image":
         result = process_image_media(content)
-        vin_no=result.get("value")
-        print(vin_no)
-        if result["type"] == "vin":
-            reply = (
-                f"✅ Thank you for the VIN *{vin_no}*.\n\n"
-                "Please share the *item or part description* "
-                "(e.g., brake pads, oil filter, shock absorber) "
-                "so I can check the best available options and prices for you."
-                if vin_no
-                else "❌ I couldn’t detect a VIN. Please send a clearer image."
-            )
-            return send_whatsapp_text(user_id, reply)
+        # print(result['message'])
+        friendly_reply = img_format_response(result)
+        return send_whatsapp_text(user_id, friendly_reply)
 
-        return send_whatsapp_text(user_id, result["message"])
+
+        # return send_whatsapp_text(user_id, result["message"])
 
     # ---- AUDIO ----
     if msg_type == "audio":

@@ -29,7 +29,13 @@ class AppConfig:
 
     # --- Redis ---
     REDIS_URL: str | None = _env("REDIS_URL")
+    # config.py
+    UPLOAD_ROOT = os.getenv(
+        "UPLOAD_ROOT"# local
+    )
+    MAX_REFERENCE_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 
+    ALLOWED_REFERENCE_EXTENSIONS = {"pdf", "txt", "docx"}
     # --- External APIs ---
     OPENAI_API_KEY: str | None = _env("OPENAI_API_KEY")
     OPENAI_MODEL: str = _env("OPENAI_MODEL", "gpt-4o-mini")

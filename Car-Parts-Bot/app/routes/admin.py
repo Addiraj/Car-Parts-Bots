@@ -10,6 +10,9 @@ import datetime
 import os
 from flask import make_response
 from datetime import datetime, timedelta, timezone
+from app.services.reference_extractor import extract_text_from_file
+from app.services.upload_validator import validate_reference_file
+from werkzeug.utils import secure_filename
 admin_bp = Blueprint("admin", __name__)
 
 JWT_SECRET = os.getenv("JWT_SECRET")
@@ -137,25 +140,6 @@ def get_metrics():
         "incorrect_intents": GPTService.incorrect_intent_predictions,
     })
 
-
-
-
-
-@admin_bp.get("/prompts")
-@admin_required
-def list_prompts():
-    prompts = IntentPrompt.query.order_by(IntentPrompt.intent_key).all()
-    return jsonify([
-        {
-            "id": p.id,
-            "display_name": p.display_name,
-            "prompt_text": p.prompt_text,
-            "is_active": p.is_active,
-        }
-        for p in prompts
-    ])
-
-
 # @admin_bp.post("/prompts")
 # @admin_required
 # def create_prompt():
@@ -198,67 +182,126 @@ def list_prompts():
 #     db.session.commit()
 
 #     return jsonify({"message": "Prompt updated successfully"})
+@admin_bp.get("/prompts")
+@admin_required
+def list_prompts():
+    prompts = IntentPrompt.query.order_by(IntentPrompt.intent_key).all()
+    return jsonify([
+        {
+            "id": p.id,
+            "display_name": p.display_name,
+            "intent_type": p.intent_type,
+            "prompt_text": p.prompt_text,
+            "reference_file": p.reference_file,  # 🔥 REQUIRED
+            "is_active": p.is_active,
+        }
+        for p in prompts
+    ])
+
 @admin_bp.post("/prompts")
 @admin_required
 def create_prompt():
-    data = request.json or {}
+    data = request.form
+    file = request.files.get("reference_file")
 
     intent_key = data.get("intent_key", "").strip().lower()
     display_name = data.get("display_name", "").strip()
     prompt_text = data.get("prompt_text", "").strip()
+    intent_type = data.get("intent_type", "text").strip()
 
     if not intent_key or not display_name or not prompt_text:
-        return jsonify({
-            "error": "intent_key, display_name and prompt_text are required"
-        }), 400
+        return jsonify({"error": "Required fields missing"}), 400
 
-    # 🔒 intent_key must be unique
+    if intent_type not in ("text", "image"):
+        return jsonify({"error": "Invalid intent_type"}), 400
+
     if IntentPrompt.query.filter_by(intent_key=intent_key).first():
         return jsonify({"error": "Intent key already exists"}), 400
+
+    reference_file = None
+    reference_text = None
+
+    if intent_type == "image" and file:
+        validate_reference_file(file)
+
+        intent_dir = os.path.join(
+            current_app.config["UPLOAD_ROOT"],
+            "intents",
+            intent_key
+        )
+        os.makedirs(intent_dir, exist_ok=True)
+
+        filename = secure_filename(file.filename)
+        path = os.path.join(intent_dir, filename)
+        file.save(path)
+
+        reference_file = f"intents/{intent_key}/{filename}"
+        reference_text = extract_text_from_file(path)
+    else:
+        reference_file = None
+        reference_text = None
 
     prompt = IntentPrompt(
         intent_key=intent_key,
         display_name=display_name,
         prompt_text=prompt_text,
-        is_active=data.get("is_active", True),
+        intent_type=intent_type,
+        reference_file=reference_file,
+        reference_text=reference_text,
+        is_active=True,
     )
 
     db.session.add(prompt)
     db.session.commit()
 
-    return jsonify({
-        "message": "Prompt created successfully",
-        "id": prompt.id
-    }), 201
-
+    return jsonify({"message": "Prompt created", "id": prompt.id}), 201
 
 @admin_bp.put("/prompts/<int:prompt_id>")
 @admin_required
 def update_prompt(prompt_id):
-    prompt = IntentPrompt.query.get(prompt_id)
-    if not prompt:
-        return jsonify({"error": "Prompt not found"}), 404
+    prompt = IntentPrompt.query.get_or_404(prompt_id)
 
-    data = request.json or {}
+    data = request.form
+    file = request.files.get("reference_file")
 
-    # ❌ DO NOT allow intent_key update
     if "intent_key" in data:
-        return jsonify({
-            "error": "intent_key cannot be modified once created"
-        }), 400
+        return jsonify({"error": "intent_key cannot be modified"}), 400
+    if data.get("remove_reference_file") == "true":
+        prompt.reference_file = None
+        prompt.reference_text = None
 
-    if "display_name" in data:
-        prompt.display_name = data["display_name"].strip()
+    prompt.display_name = data.get("display_name", prompt.display_name).strip()
+    prompt.prompt_text = data.get("prompt_text", prompt.prompt_text).strip()
 
-    if "prompt_text" in data:
-        prompt.prompt_text = data["prompt_text"].strip()
+    intent_type = data.get("intent_type", prompt.intent_type).strip()
+    if intent_type not in ("text", "image"):
+        return jsonify({"error": "Invalid intent_type"}), 400
 
-    if "is_active" in data:
-        prompt.is_active = bool(data["is_active"])
+    prompt.intent_type = intent_type
+
+    if intent_type == "image" and file:
+        validate_reference_file(file)
+
+        intent_dir = os.path.join(
+            current_app.config["UPLOAD_ROOT"],
+            "intents",
+            prompt.intent_key
+        )
+        os.makedirs(intent_dir, exist_ok=True)
+
+        filename = secure_filename(file.filename)
+        path = os.path.join(intent_dir, filename)
+        file.save(path)
+
+        prompt.reference_file = f"intents/{prompt.intent_key}/{filename}"
+        prompt.reference_text = extract_text_from_file(path)
+
+    if intent_type == "text":
+        prompt.reference_file = None
+        prompt.reference_text = None
 
     db.session.commit()
-
-    return jsonify({"message": "Prompt updated successfully"})
+    return jsonify({"message": "Prompt updated"})
 
 
 @admin_bp.patch("/prompts/<int:prompt_id>/toggle")
@@ -285,4 +328,3 @@ def delete_prompt(prompt_id):
     db.session.commit()
 
     return jsonify({"message": "Prompt deleted"})
-

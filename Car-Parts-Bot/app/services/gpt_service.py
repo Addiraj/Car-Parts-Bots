@@ -17,6 +17,7 @@ from rapidfuzz import fuzz
 from ..redis_client import redis_client
 import hashlib
 import json
+from typing import Dict, List
 
 class GPTService:
     def intent_cache_key(self, message: str) -> str:
@@ -25,8 +26,7 @@ class GPTService:
         return f"intent:v2:{digest}"
     # import re
 
-    def normalize_for_detection(self, text: str) -> str:
-        return re.sub(r'[^A-Za-z0-9]', '', text)
+    
 
     @staticmethod
     def get_fallback_menu(user_language: str = "en") -> str:
@@ -73,7 +73,7 @@ class GPTService:
         Fallback → "unknown" if low confidence or unsupported intent.
         """
 
-        clean_text = user_message.strip()
+        clean_text =user_message.strip()
 
         # ✅ Build cache key ONCE, correctly
         cache_key = self.intent_cache_key(clean_text)
@@ -128,6 +128,25 @@ class GPTService:
                 "confidence": 0.95,
                 "fallback_required": False
             }
+        # clean_upper = clean_text.upper()
+
+        # ---------- VIN FAST PATH ----------
+        VIN_REGEX = re.compile(r"^[A-HJ-NPR-Z0-9]{17}$")
+        lines = [l.strip() for l in clean_text.splitlines() if l.strip()]
+
+        for line in lines:
+            if VIN_REGEX.fullmatch(line.upper()):
+                print("FAST PATH VIN MATCH")
+                result = {
+                    "intent": "vin_handling",
+                    "entities": {},
+                    "language": "en",
+                    "confidence": 0.9,
+                    "fallback_required": False
+                }
+                redis_client.setex(cache_key, 3600, json.dumps(result))
+                return result
+
         # 2. Fast Path: Regex for Part Numbers
         # If it looks like a part number usage (mostly alphanumeric, dashes, short), skip GPT
         # Pattern: 4 to 20 chars, alphanumeric/dashes, no spaces or few spaces
@@ -152,7 +171,12 @@ class GPTService:
             return {"intent": "unknown", "entities": {}, "language": "en"}
 
         # Fetch allowed intents dynamically from DB
-        active_prompts = IntentPrompt.query.filter_by(is_active=True).all()
+        # active_prompts = IntentPrompt.query.filter_by(is_active=True).all()
+        active_prompts = (
+            IntentPrompt.query
+            .filter_by(is_active=True, intent_type="text")
+            .all()
+        )
         intent_keys = [row.intent_key for row in active_prompts]
         if not intent_keys:
             current_app.logger.error("No active intents found in DB!")
@@ -229,7 +253,7 @@ class GPTService:
                 "confidence": confidence,
                 "fallback_required": fallback_required,
             }
-            
+            # print(result)
             # 3. Cache Result (1 hour)
             if intent != "unknown":
                  redis_client.setex(cache_key, 3600, json.dumps(result))
@@ -298,8 +322,8 @@ class GPTService:
             return {"needs_more_info": True, "message": self.get_fallback_menu(language)}
 
         system_prompt = row.prompt_text
-        detect_text = self.normalize_for_detection(user_message)
-        print("DETEECTED text",detect_text)
+        # detect_text = self.normalize_for_detection(user_message)
+        # print("DETEECTED text",detect_text)
         try:
             response = self.client.chat.completions.create(
             model=current_app.config.get("OPENAI_MODEL", "gpt-4o-mini"),
@@ -310,7 +334,7 @@ class GPTService:
                 },
                 {
                     "role": "user",
-                    "content": [{"type": "text", "text": detect_text}],
+                    "content": [{"type": "text", "text": clean_text}],
                 },
             ],
             temperature=0.0,
@@ -326,79 +350,107 @@ class GPTService:
             return {"needs_more_info": True, "message": self.get_fallback_menu(language)}
 
     def format_response(
-        self, search_results: list[dict], intent: str, language: str = "en"
+        self,
+        search_results: Dict[str, List[dict]],
+        intent: str,
+        language: str = "en",
+        is_multi_input: bool = False,
     ) -> str:
         """
-        Format search results into a natural language response.
-        Supports multilingual responses.
+        Format search results into a natural language WhatsApp-style response.
+        Handles both single and multi part-number inputs.
         """
+
         if not self.client:
             return self._fallback_response(search_results, language)
 
         model = current_app.config.get("OPENAI_MODEL", "gpt-4o-mini")
 
-        # Build context about results
-        results_text = ""
-        if search_results:
-            for r in search_results[:5]:  # Limit to top 5 for context
-                results_text += f"- {r.get('name', 'N/A')} (Brand Part # {r.get('brand_part_no', 'N/A')})"
-                if r.get("price"):
-                    results_text += f" - Price: {r.get('price')} AED"
-                if r.get("brand"):
-                    results_text += f" - Brand: {r.get('brand')}"
-                results_text += "\n"
-        else:
+        # ----------------------------
+        # Build results text (STRICT)
+        # ----------------------------
+        # ✅ Correct empty check
+        if not search_results:
             results_text = "No parts found matching your query."
-        # print(language)
+        else:
+            results_text = ""
+
+            for tag, items in search_results.items():
+                if not items:
+                    continue  # skip empty groups safely
+
+                results_text += f"\n🔹 {tag}\n"
+
+                for r in items:
+                    results_text += f"• *Item:* {r.get('name', 'N/A')}\n"
+                    if r.get("brand"):
+                        results_text += f"  *Brand:* {r.get('brand')}\n"
+                    if r.get("price") is not None:
+                        results_text += f"  *Price:* {r.get('price')} AED\n"
+                    results_text += "\n"
+        # ----------------------------
+        # Helper line based on input
+        # ----------------------------
+        if is_multi_input:
+            helper_line = (
+                "Here are the compatible parts found across the part numbers you provided."
+            )
+        else:
+            helper_line = "Here are the available parts for your request."
+
+        # ----------------------------
+        # User prompt
+        # ----------------------------
         user_prompt = f"""
-                You are formatting car part search results into a professional, conversational WhatsApp-style message.
+            You are formatting car part search results into a professional, conversational WhatsApp-style message.
 
-                🚨 NON-NEGOTIABLE RULES ABOUT LANGUAGE 🚨
-                - Respond ONLY in this language: {language}
-                - Translate ONLY:
-                ✔ Greetings
-                ✔ Explanations
-                ✔ UI labels (e.g. "Item", "Brand", "Price")
-                - DO NOT translate database fields:
-                ✖ Product names
-                ✖ Brand names
-                ✖ Part numbers
-                ✖ Price values
-                - Product details MUST remain EXACTLY as given in the input text, including uppercase.
+            🚨 NON-NEGOTIABLE RULES ABOUT LANGUAGE 🚨
+            - Respond ONLY in this language: {language}
+            - Translate ONLY:
+            ✔ Greetings
+            ✔ Explanations
+            ✔ UI labels (e.g. "Item", "Brand", "Price")
+            - DO NOT translate database fields:
+            ✖ Product names
+            ✖ Brand names
+            ✖ Part numbers
+            ✖ Price values
+            - Product details MUST remain EXACTLY as given in the input text, including uppercase.
 
-                🚨 VERY IMPORTANT: Product descriptions ARE NOT normal sentences.
-                ABSOLUTELY DO NOT modify, rewrite, localize, or translate product names, brand names, price currency, or part numbers.
-                You can add translated label names before them, but NEVER alter the product field values.
+            🚨 VERY IMPORTANT
+            - Product descriptions are NOT normal sentences.
+            - NEVER modify, rewrite, localize, or translate:
+            product names, brand names, part numbers, or prices.
+            - You may translate labels ONLY.
 
-                ---
+            Formatting rules:
+            - WhatsApp-friendly
+            - Use bullet points
+            - Use *bold* (single asterisk) for labels ONLY
+            - No markdown like **bold**
+            - Clean line breaks
+            - Max 1–2 emojis
 
-                Formatting rules:
-                - Use bullet points
-                - Use *bold* (single asterisk) for labels ONLY
-                - Do not include markdown syntax like **bold**
-                - Add clean line breaks for easy reading
-                - Use minimal emojis (1 or 2 max)
+            ---
 
-                ---
+            Database results (DO NOT MODIFY):
 
-                Here are the database results (DO NOT MODIFY THESE VALUES):
+            {results_text}
 
-                {results_text}
+            ---
 
-                ---
-
-                Response Structure:
-                1️⃣ Friendly greeting in {language}
-                2️⃣ Short translated helper line
-                3️⃣ Bullet list for each item:
-                • *Item:* <EXACT Product Name>
-                • *Brand:* <EXACT Brand Name>
-                • *Price:* <EXACT Price Value>
-                4️⃣ Closing sentence : If you need any help, I’m here to help you.😊”
-                """
+            Response structure:
+            1️⃣ Friendly greeting in {language}
+            2️⃣ Short helper line (translated): "{helper_line}"
+            3️⃣ Bullet list for each item:
+            • *Item:* <EXACT Product Name>
+            • *Brand:* <EXACT Brand Name>
+            • *Price:* <EXACT Price Value>
+            4️⃣ Closing sentence (translated):
+            "If you need any help, I’m here to help you 😊"
+            """
 
         try:
-            print("format response GPTSERVICE-->",language)
             start_time = time.time()
             response = self.client.chat.completions.create(
                 model=model,
@@ -407,24 +459,27 @@ class GPTService:
                         "role": "system",
                         "content": (
                             "You are a multilingual WhatsApp car parts assistant. "
-                            "Follow EXACTLY the rules in the user message: "
+                            "Follow EXACTLY the rules in the user message. "
                             "Translate ONLY UI text. "
                             "DO NOT translate product names, brand names, part numbers, or prices. "
-                            
-                            f"User language for UI labels and sentences must be: {language}."
+                            f"User language must be: {language}."
                         ),
                     },
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=0.7,
-                max_tokens=500,
+                temperature=0.6,
+                max_tokens=3000,
             )
-            latency = time.time() - start_time
-            self._record_latency(latency)
+
+            self._record_latency(time.time() - start_time)
             return response.choices[0].message.content.strip()
+
         except Exception as e:
-            current_app.logger.warning(f"GPT response formatting failed: {e}, using fallback")
+            current_app.logger.warning(
+                f"GPT response formatting failed: {e}, using fallback"
+            )
             return self._fallback_response(search_results, language)
+
 
     def format_multi_part_response(self, results_by_pn: dict, language: str = "en") -> str:
         """

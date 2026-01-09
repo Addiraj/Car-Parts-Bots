@@ -75,6 +75,15 @@ class IntentPrompt(db.Model):
     # human-friendly
     display_name = db.Column(db.String(255), nullable=False)
     prompt_text = db.Column(db.Text, nullable=False)
+    intent_type = db.Column(
+        db.String(20),
+        nullable=False,
+        server_default="text"   # 👈 VERY IMPORTANT
+    )
+    # uploaded file path (PDF/TXT)
+    reference_file = db.Column(db.String(255), nullable=True)
+    # extracted text from file (cached)
+    reference_text = db.Column(db.Text, nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     # id = db.Column(db.Integer, primary_key=True)
     # intent_key = db.Column(db.String(100), unique=True, nullable=False)
