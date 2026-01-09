@@ -111,63 +111,114 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { adminAPI } from '../services/api';
-
+import { useEffect } from "react";
 export default function PromptModal({ data, onClose, onSaved, onLogout }) {
   const [intentKey, setIntentKey] = useState(data?.intent_key || '');
   const [displayName, setDisplayName] = useState(data?.display_name || '');
+  const [intentType, setIntentType] = useState(data?.intent_type || 'text');
   const [promptText, setPromptText] = useState(data?.prompt_text || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [referenceFile, setReferenceFile] = useState(null);
+  const [existingFile, setExistingFile] = useState(
+  data?.reference_file || null
+  );
+
 
   const navigate = useNavigate();
+  useEffect(() => {
+    if (data) {
+      setIntentKey(data.intent_key || "");
+      setDisplayName(data.display_name || "");
+      setIntentType(data.intent_type || "text");
+      setPromptText(data.prompt_text || "");
+      setExistingFile(data.reference_file || null);
+      setReferenceFile(null); // never auto-reselect file
+    } else {
+      // CREATE MODE RESET
+      setIntentKey("");
+      setDisplayName("");
+      setIntentType("text");
+      setPromptText("");
+      setExistingFile(null);
+      setReferenceFile(null);
+    }
+  }, [data]);
 
   const save = async () => {
-    if (!displayName.trim() || !promptText.trim()) {
-      setError('All fields are required');
+    if (!displayName.trim() || !promptText.trim() || !intentType) {
+      setError("All fields are required");
       return;
     }
 
-    setLoading(true);
-    setError('');
-
-    const payload = {
-      display_name: displayName.trim(),
-      prompt_text: promptText.trim(),
-    };
-
-    // ONLY include intent_key on CREATE
-    if (!data) {
-      if (!intentKey.trim()) {
-        setError('Intent key is required');
-        setLoading(false);
-        return;
-      }
-
-      payload.intent_key = intentKey
-        .toLowerCase()
-        .replace(/[^a-z0-9_]/g, '_');
+    if (!data && !intentKey.trim()) {
+      setError("Intent key is required");
+      return;
     }
 
+    // if (intentType === "image" && !data) {
+    //   setError("Field is required for image intents");
+    //   return;
+    // }
+
+
+
+    setLoading(true);
+    setError("");
+
     try {
+      const formData = new FormData();
+
+      // common fields
+      formData.append("display_name", displayName.trim());
+      formData.append("prompt_text", promptText.trim());
+      formData.append("intent_type", intentType);
+
+      // only on CREATE
+      if (!data) {
+        formData.append(
+          "intent_key",
+          intentKey.toLowerCase().replace(/[^a-z0-9_]/g, "_")
+        );
+      }
+
+      // image intent → attach file
+      if (intentType === "image" && referenceFile) {
+        formData.append("reference_file", referenceFile); // ✅ correct key
+      }
+      
+      if (
+          data &&
+          (
+            intentType === "text" ||        // switched to text
+            (!existingFile && !referenceFile) // explicitly removed
+          )
+        ) {
+          formData.append("remove_reference_file", "true");
+        }
+
+      // ONE request only
       if (data) {
-        await adminAPI.updatePrompt(data.id, payload);
+        await adminAPI.updatePromptMultipart(data.id, formData);
       } else {
-        await adminAPI.createPrompt(payload);
+        await adminAPI.createPromptMultipart(formData);
       }
 
       onSaved();
       onClose();
+
     } catch (err) {
       if (err.response?.status === 401 || err.response?.status === 403) {
         onLogout?.();
-        navigate('/', { replace: true });
+        navigate("/", { replace: true });
       } else {
-        setError(err.response?.data?.error || 'Failed to save prompt');
+        setError(err.response?.data?.error || "Failed to save prompt");
       }
     } finally {
       setLoading(false);
     }
   };
+
 
 
   return (
@@ -184,26 +235,57 @@ export default function PromptModal({ data, onClose, onSaved, onLogout }) {
           </div>
         )}
 
+        {/* Intent Key */}
         <input
           className={`w-full p-2 border rounded ${
-            data
-              ? 'bg-gray-100 cursor-not-allowed'
-              : 'bg-white'
+            data ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
           }`}
-          placeholder="Intent Key"
+          placeholder="Intent Key (machine-safe)"
           value={intentKey}
           onChange={(e) => setIntentKey(e.target.value)}
           disabled={!!data}
         />
 
+        {/* Display Name */}
         <input
           className="w-full p-2 border rounded"
-          placeholder="Display Name (shown to humans)"
+          placeholder="Display Name (human-readable)"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
           disabled={loading}
         />
 
+        {/* Intent Type */}
+        <div className="flex gap-6 items-center">
+          <span className="font-medium">Intent Type:</span>
+
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              value="text"
+              checked={intentType === "text"}
+              onChange={() => {
+                setIntentType("text");
+                setExistingFile(null);
+                setReferenceFile(null);
+              }}
+            />
+            Text Intent
+          </label>
+
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              value="image"
+              checked={intentType === 'image'}
+              onChange={() => setIntentType('image')}
+              disabled={loading}
+            />
+            Image Intent
+          </label>
+        </div>
+
+        {/* Prompt Text */}
         <textarea
           className="w-full p-2 border rounded h-40"
           placeholder="Prompt text"
@@ -211,6 +293,36 @@ export default function PromptModal({ data, onClose, onSaved, onLogout }) {
           onChange={(e) => setPromptText(e.target.value)}
           disabled={loading}
         />
+        {existingFile && (
+          <div className="flex items-center gap-3 bg-gray-50 border p-2 rounded">
+            <span className="text-sm text-gray-700">
+              📄 {existingFile.split("/").pop()}
+            </span>
+
+            <button
+              type="button"
+              onClick={() => setExistingFile(null)}
+              className="text-red-600 text-sm hover:underline"
+            >
+              Remove
+            </button>
+          </div>
+        )}
+
+        {intentType === "image" && !existingFile && (
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Reference File (PDF / DOCX / TXT)
+            </label>
+            <input
+              type="file"
+              accept=".pdf,.docx,.txt"
+              onChange={(e) => setReferenceFile(e.target.files[0])}
+              disabled={loading}
+              className="w-full border p-2 rounded"
+            />
+          </div>
+        )}
 
         <div className="flex justify-end gap-2">
           <button onClick={onClose} disabled={loading}>
