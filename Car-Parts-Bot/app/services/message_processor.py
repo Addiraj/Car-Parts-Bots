@@ -25,7 +25,7 @@ def process_user_message(user_id: str, message: str) -> str:
     gpt = GPTService()
    
     JSON_ONLY_INTENTS = {
-        "part_number_handling_strict_matching",
+        "partnumber_handling",
         "vin_handling"
     }
  
@@ -55,7 +55,7 @@ def process_user_message(user_id: str, message: str) -> str:
         # Safety check for entities
         if not entities:
             if structured.get("needs_more_info", False):
-                if intent == "chassis_number":
+                if intent == "vin_handling":
                     return "Please provide a valid chassis number to proceed."
                 return gpt.get_fallback_menu(language)
             entities = structured.get("entities", {})
@@ -63,7 +63,7 @@ def process_user_message(user_id: str, message: str) -> str:
         # ======================================================
         #  LOGIC 1: PART NUMBER (User gave explicit part code)
         # ======================================================
-        if intent == "part_number_handling_strict_matching":
+        if intent == "partnumber_handling":
             # Block natural language queries pretending to be part numbers
             alpha_chars = sum(c.isalpha() for c in message)
             total_chars = max(len(message), 1)
@@ -71,33 +71,6 @@ def process_user_message(user_id: str, message: str) -> str:
             if alpha_chars / total_chars > 0.6:
                 intent = "brand_support_check"
 
-            # part_numbers = entities.get("part_numbers") or []
-            # if not part_numbers and entities.get("part_number"):
-            #     part_numbers = [entities.get("part_number")]
- 
-            # if part_numbers:
-            #     results_by_pn = {}
-            #     for pn in part_numbers:
-            #         pn_clean = pn.strip().upper()
-                   
-            #         # Query Local Stock Database
-            #         parts = (
-            #             db.session.query(Stock)
-            #             .filter(func.upper(Stock.brand_part_no) == pn_clean)
-            #             .limit(10)
-            #             .all()
-            #         )
-                   
-            #         results_by_pn[pn_clean] = [
-            #             {
-            #                 "name": p.item_desc,
-            #                 "part_number": p.brand_part_no,
-            #                 "brand": p.brand,
-            #                 "price": float(p.price) if p.price else None,
-            #                 "qty": p.qty
-            #             }
-            #             for p in parts
-            #         ]
             print("Entities extracted for part number handling:", entities.get("part_numbers"))
             # -------- Extract part numbers --------
             structured_part_numbers = entities.get("part_numbers") or []
@@ -195,11 +168,11 @@ def process_user_message(user_id: str, message: str) -> str:
         # ======================================================
         if intent == "vin_handling":
             chassis_number = entities.get("chassis")
-
+            print("We are breaking here - VIN handling")
             # --- VIN validation ---
             if not chassis_number or len(chassis_number) != 17:
                 return "Please provide a valid 17-digit chassis number."
-
+            print("WE HAVE TO GO THROUGH THIS")
             # ⚠️ SAFER filler words (no domain nouns)
             FILLER_WORDS = (
                 r'hi|hello|please|price|cost|need|'
@@ -289,10 +262,10 @@ def process_user_message(user_id: str, message: str) -> str:
                 .filter(normalized_db_pn.in_(found_oem_numbers))
                 .all()
             )
-            # print("Matched stock parts:", stock_parts)
+            print("Matched stock parts:", stock_parts)
 
             if not stock_parts:
-                return "Parts found but not available in inventory. Our team will check availability. 😊"
+                return "I am unable to fetch your details accurately at the moment.\nOur team will contact you soon to assist you further.\nYou may also reach us on WhatsApp at +971504827057. 😊"
 
             # ✅ FINAL RESPONSE DATA
             formatted_data = [

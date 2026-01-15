@@ -115,7 +115,7 @@ def detect_image_intent(img_bytes: bytes, content_type: str) -> dict:
 
     # 2️⃣ Build dynamic intent list
     intent_list_text = "\n".join([f"- {key}" for key in intent_keys])
-
+    # print("Intent List:\n", intent_list_text)
     system_prompt = f"""
             You are a STRICT image intent classifier for an automotive support system.
 
@@ -149,7 +149,7 @@ def detect_image_intent(img_bytes: bytes, content_type: str) -> dict:
         resp = client.chat.completions.create(
             model=model,
             temperature=0,
-            max_tokens=100,
+            max_tokens=1000,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {

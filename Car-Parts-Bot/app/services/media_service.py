@@ -40,7 +40,7 @@ def process_image_media(media_id: str) -> dict:
         print("🔍 Detected image intent:", intent_key)
          # 4️⃣ All other image intents → DB driven
         result = run_image_intent(intent_key, content, content_type)
-        # print(result.get("message"))
+        print(result.get("message"))
 
         # Ensure consistent output
         return {

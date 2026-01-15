@@ -84,6 +84,9 @@ class TranslationService:
             model = self._get_model()
             labels, scores = model.predict(text)
             lang = labels[0].replace("__label__", "")
+            confidence = scores[0]
+            if confidence < 0.80:
+                return BASE_LANG 
             return lang or BASE_LANG
         except Exception as e:
             print("FastText detection failed:", e)

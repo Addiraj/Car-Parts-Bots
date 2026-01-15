@@ -79,8 +79,8 @@ class GPTService:
         cache_key = self.intent_cache_key(clean_text)
 
         # 🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨
-        # print("Deleting cache key:", cache_key)
-        # redis_client.delete(cache_key)
+        print("Deleting cache key:", cache_key)
+        redis_client.delete(cache_key)
 
         # 1. Check Redis cache
         cached = redis_client.get(cache_key)
@@ -116,18 +116,18 @@ class GPTService:
 
             return None
         
-        text = normalize_text(user_message.lower())
-        detected_brand = detect_brand(text, SUPPORTED_BRANDS)
-        brand_detected = detected_brand is not None
-        print("BRAND DETECTED:", detected_brand)
-        if brand_detected:
-            return {
-                "intent": "brand_support_check",
-                "entities": {},
-                "language": "en",
-                "confidence": 0.95,
-                "fallback_required": False
-            }
+        # text = normalize_text(user_message.lower())
+        # detected_brand = detect_brand(text, SUPPORTED_BRANDS)
+        # brand_detected = detected_brand is not None
+        # print("BRAND DETECTED:", detected_brand)
+        # if brand_detected:
+        #     return {
+        #         "intent": "brand_support_check",
+        #         "entities": {},
+        #         "language": "en",
+        #         "confidence": 0.95,
+        #         "fallback_required": False
+        #     }
         # clean_upper = clean_text.upper()
 
         # ---------- VIN FAST PATH ----------
@@ -156,7 +156,7 @@ class GPTService:
         if (PART_NUMBER_REGEX.fullmatch(clean_text.upper()) and sum(c.isdigit() for c in clean_text) >= 2 and " " not in clean_text.strip()):
              print("FAST PATH PART NUMBER MATCH")
              result = {
-                 "intent": "part_number_handling_strict_matching",
+                 "intent": "partnumber_handling",
                  "entities": {"part_numbers": [clean_text.upper()], "part_number": clean_text.upper()}, 
                  "language": "en", # Assume EN for codes
                  "confidence": 1.0,
@@ -204,7 +204,7 @@ class GPTService:
                     - Use semantic understanding, not keyword matching.
                     - Detect hostility, abuse, or anger by tone and language, even if indirect.
                     - Detect greetings by conversational intent, not just words like "hi".
-                    - Detect part numbers if the message primarily consists of codes, identifiers, or part-like strings.
+                   
                     - Prefer the closest intent rather than "unknown" when the message is car-related.
 
                     Return a confidence score reflecting how sure you are.
@@ -292,7 +292,7 @@ class GPTService:
                     {"role": "user", "content": user_message},
                 ],
                 temperature=0.3,
-                max_tokens=400,
+                max_tokens=3000,
             )
 
             reply = response.choices[0].message.content
@@ -338,7 +338,7 @@ class GPTService:
                 },
             ],
             temperature=0.0,
-            max_tokens=200,
+            max_tokens=3000,
         )
             data = json.loads(response.choices[0].message.content)
             print("Structured data extracted:", data)
@@ -538,7 +538,7 @@ class GPTService:
 
         # Check for part number pattern (alphanumeric, often with dashes)
         if re.search(r"\b[A-Z0-9\-]{4,}\b", message.upper()):
-            return {"intent": "part_number_handling_strict_matching", "entities": {}, "language": language or "en"}
+            return {"intent": "partnumber_handling", "entities": {}, "language": language or "en"}
 
         # Check for chassis/VIN pattern
         if "chassis" in message_lower or "vin" in message_lower:
@@ -621,7 +621,7 @@ class GPTService:
                     {"role": "user", "content": f"Generate a friendly greeting for a car parts customer. Language: {language}"}
                 ],
                 temperature=0.7,
-                max_tokens=100,
+                max_tokens=3000,
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
@@ -652,7 +652,7 @@ class GPTService:
                     {"role": "user", "content": f"Translate to {language}: {english_message}"}
                 ],
                 temperature=0.3,
-                max_tokens=150,
+                max_tokens=3000,
             )
             return response.choices[0].message.content.strip()
         except Exception as e:

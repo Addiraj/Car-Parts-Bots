@@ -85,10 +85,7 @@ class IntentPrompt(db.Model):
     # extracted text from file (cached)
     reference_text = db.Column(db.Text, nullable=True)
     is_active = db.Column(db.Boolean, default=True)
-    # id = db.Column(db.Integer, primary_key=True)
-    # intent_key = db.Column(db.String(100), unique=True, nullable=False)
-    # prompt_text = db.Column(db.Text, nullable=False)
-    # is_active = db.Column(db.Boolean, default=True, nullable=False)
+
 
 class User(db.Model):
     __tablename__ = 'users'

@@ -43,7 +43,7 @@ def img_format_response(raw_result):
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.2,
-        max_tokens=500,
+        max_tokens=3000,
     )
 
     return response.choices[0].message.content.strip()

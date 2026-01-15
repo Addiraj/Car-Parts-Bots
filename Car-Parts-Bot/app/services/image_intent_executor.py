@@ -36,27 +36,66 @@ def run_image_intent(intent_key: str, img_bytes: bytes, content_type: str) -> di
 
         - Do NOT add extra keys
         - Do NOT add explanations outside JSON
+        - If the reference contains multiple sections,
+        - ALL sections MUST appear in the output.
+        - Omitting any section is INVALID.
+
+
+        SOURCE-LOCK RULE (STRICT)
+
+        For each section:
+        - Use ONLY sentences or bullet points that already exist in the reference document
+        - Do NOT paraphrase
+        - Do NOT summarize
+        - Do NOT simplify
+        - Do NOT replace wording with your own
+
+        You may:
+        - Remove emojis
+        - Remove formatting symbols
+        - Split long sentences into bullet points ONLY if wording stays the same
+
+        If exact wording is not possible, copy the closest sentence from the reference without changing meaning.
+
+
     """
 
-    reference_block = prompt.reference_text or "NO REFERENCE PROVIDED"
-    system_prompt = f"""
-    {SYSTEM_WRAPPER}
-    REFERENCE:
-    {reference_block}
-    TASK:
-    {prompt.prompt_text}
-    """
+    reference_block = prompt.reference_text 
+    # system_prompt = f"""
+    # {SYSTEM_WRAPPER}
+    # REFERENCE:
+    # {reference_block}
+    # TASK:
+    # {prompt.prompt_text}
+    # """
 
     response = client.chat.completions.create(
         model=model,
         temperature=0,
-        max_tokens=300,
-        messages=[
-            {"role": "system", "content": system_prompt},
+        max_tokens=3000,
+        messages = [
+            {
+                "role": "system",
+                "content": SYSTEM_WRAPPER
+            },
+            {
+                "role": "system",
+                "content": f"""
+                REFERENCE (USE ALL SECTIONS EXACTLY AS PROVIDED):
+                {reference_block}
+
+                RULES (MANDATORY):
+                - Use ONLY information from the reference
+                - Include ALL sections present in the reference
+                - Preserve section order
+                - Do NOT summarize or omit sections
+                - Do NOT add new information
+                """
+            },
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Analyze this image."},
+                    {"type": "text", "text": prompt.prompt_text},
                     {
                         "type": "image_url",
                         "image_url": {
@@ -66,6 +105,7 @@ def run_image_intent(intent_key: str, img_bytes: bytes, content_type: str) -> di
                 ]
             }
         ]
+
     )
     raw = response.choices[0].message.content.strip()
 
