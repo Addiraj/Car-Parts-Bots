@@ -20,13 +20,11 @@ import json
 from typing import Dict, List
 
 class GPTService:
+    
     def intent_cache_key(self, message: str) -> str:
         normalized = message.strip().lower()
         digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
         return f"intent:v2:{digest}"
-    # import re
-
-    
 
     @staticmethod
     def get_fallback_menu(user_language: str = "en") -> str:
@@ -302,6 +300,83 @@ class GPTService:
             current_app.logger.warning(f"Plain response generation failed: {e}")
             return ""
 
+    def run_system_prompt(
+        self,
+        prompt_text: str,
+        user_text: str,
+        temperature: float = 0.0,
+        max_tokens: int = 3000
+    ) -> str:
+        """
+        Runs a strict system prompt with a user message.
+        Returns raw assistant content (string).
+        """
+
+        response = self.client.chat.completions.create(
+            model=current_app.config.get("OPENAI_MODEL", "gpt-4o-mini"),
+            temperature=temperature,
+            max_tokens=max_tokens,
+            messages=[
+                {
+                    "role": "system",
+                    "content": prompt_text
+                },
+                {
+                    "role": "user",
+                    "content": user_text
+                }
+            ]
+        )
+
+        return response.choices[0].message.content.strip()
+    
+    def extract_part_name_with_gpt(self, message: str) -> str | None:
+        PART_NAME_EXTRACTION_PROMPT = """
+            You are a part-name extraction engine for an automotive spare parts system.
+
+            Your task:
+            - Extract the automotive PART NAME from the user message.
+            - A part name is a physical car component (e.g. oil filter, brake pads, radiator).
+
+            Rules:
+            - Ignore VIN numbers, car brands, emotions, abuse, greetings, and filler text.
+            - If NO clear part name is present, return null.
+            - Do NOT guess.
+            - Do NOT infer.
+            - Do NOT return generic words like "parts".
+            - Do NOT return sentences.
+
+            Output STRICT JSON only in this format:
+            {
+            "part_name": "<string or null>"
+            }
+
+            Examples:
+
+            Input: "I want oil filter for my car"
+            Output: { "part_name": "oil filter" }
+
+            Input: "front brake pads price"
+            Output: { "part_name": "front brake pads" }
+
+            Input: "give me parts for BMW"
+            Output: { "part_name": null }
+
+            Input: "YOU ARE TRASH"
+            Output: { "part_name": null }
+            """
+
+        raw = self.run_system_prompt(
+            prompt_text=PART_NAME_EXTRACTION_PROMPT,
+            user_text=message,
+            temperature=0
+        )
+
+        try:
+            data = json.loads(raw)
+            return data.get("part_name")
+        except Exception:
+            return None
 
     def generate_structured_request(self, user_message: str, intent_key: str) -> dict:
         """

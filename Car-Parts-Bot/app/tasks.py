@@ -29,7 +29,7 @@ def process_whatsapp_message(user_id, content, msg_type="text"):
 
     # ---- IMAGE ----
     if msg_type == "image":
-        result = process_image_media(content)
+        result = process_image_media(user_id,content)
         # print(result['message'])
         friendly_reply = img_format_response(result)
         return send_whatsapp_text(user_id, friendly_reply)

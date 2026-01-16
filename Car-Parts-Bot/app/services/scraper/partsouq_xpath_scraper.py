@@ -169,7 +169,7 @@ class PartSouqXPathScraper:
         )
 
         tree = self._fetch_xpath(search_url)
-        if not tree:
+        if tree is None:
             return []
 
         # Direct table
@@ -188,7 +188,7 @@ class PartSouqXPathScraper:
                 continue
 
             diag_tree = self._fetch_xpath(BASE_URL + href)
-            if diag_tree:
+            if len(diag_tree) > 0:
                 results = self._extract_parts_table(diag_tree, keywords)
                 if results:
                     return results
