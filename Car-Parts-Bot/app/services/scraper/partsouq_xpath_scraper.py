@@ -195,6 +195,38 @@ class PartSouqXPathScraper:
 
         return []
 
+    #Get Vehicle Details
+    def get_vehicle_details(self, vin: str) -> Optional[Dict[str, str]]:
+        """
+        Fetches vehicle metadata (Brand, Name, Model, Date) from the search page.
+        """
+        search_url = f"{BASE_URL}/search?q={vin}"
+        tree = self._fetch_xpath(search_url)
+
+        if tree is None:
+            return None
+
+        try:
+            # We look for table cells <td> that correspond to specific headers
+            # Note: We use [0] because xpath returns a list
+            brand = tree.xpath("//td[@data-title='Brand']")[0].text_content().strip()
+            name = tree.xpath("//td[@data-title='Name']")[0].text_content().strip()
+            model = tree.xpath("//td[@data-title='Model']")[0].text_content().strip()
+
+            # Date can sometimes be 'Date' or 'Vehicle Date'
+            date_nodes = tree.xpath("//td[@data-title='Date'] | //td[@data-title='Vehicle Date']")
+            date = date_nodes[0].text_content().strip() if date_nodes else "N/A"
+
+            return {
+                "brand": brand,
+                "name": name,
+                "model": model,
+                "date": date
+            }
+        except Exception as e:
+            print(f"[!] Error extracting vehicle details: {e}")
+            return None
+
     # ------------------------------
     # PUBLIC API (THIS IS WHAT YOU CALL)
     # ------------------------------

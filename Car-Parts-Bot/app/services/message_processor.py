@@ -463,17 +463,48 @@ def process_user_message(user_id: str, message: str) -> str:
         residual = re.sub(rf'(?i)\b({FILLER_WORDS})\b', '', residual)
         residual = re.sub(r'[^a-zA-Z]', '', residual)
         print(f"DEBUG: Message='{message}' | Residual after VIN removal='{residual}'")
-        if not residual:
-            if old_vin and old_vin != new_vin:
-                return (
-                    "I've updated your VIN 🚗.\n\n"
-                    "Please tell me which part you need."
-                )
+        # if not residual:
+        #     if old_vin and old_vin != new_vin:
+        #         return (
+        #             "I've updated your VIN 🚗.\n\n"
+        #             "Please tell me which part you need."
+        #         )
 
-            return (
-                "Thank you! I've saved your chassis number 🚗.\n\n"
-                "Please tell me which part you need."
-            )
+        #     return (
+        #         "Thank you! I've saved your chassis number 🚗.\n\n"
+        #         "Please tell me which part you need."
+        #     )
+        if not residual:
+            try:
+                # 1. Initialize Scraper
+                scraper = get_scraper()
+
+                # 2. Fetch Details
+                vehicle_info = scraper.get_vehicle_details(new_vin)
+
+                if vehicle_info:
+                    # 3. Format the Response
+                    if old_vin and old_vin != new_vin:
+                        return (
+                            f"🚗 **Vehicle Identified!**\n"
+                            f"**Brand:** {vehicle_info.get('brand', 'N/A')}\n"
+                            f"**Name:** {vehicle_info.get('name', 'N/A')}\n"
+                            f"**Model:** {vehicle_info.get('model', 'N/A')}\n"
+                            f"**Date:** {vehicle_info.get('date', 'N/A')}\n\n"
+                            f"I've updated this chassis number. Please tell me which part you need! 🔧"
+                        )
+                    return (
+                        f"🚗 **Vehicle Identified!**\n"
+                        f"**Brand:** {vehicle_info.get('brand', 'N/A')}\n"
+                        f"**Name:** {vehicle_info.get('name', 'N/A')}\n"
+                        f"**Model:** {vehicle_info.get('model', 'N/A')}\n"
+                        f"**Date:** {vehicle_info.get('date', 'N/A')}\n\n"
+                        f"I've saved this chassis number. Please tell me which part you need! 🔧"
+                    )
+            except Exception as e:
+                print(f"[!] Error fetching vehicle details: {e}")
+                # If it fails, it will just fall through to the standard message below
+                pass
 
         # VIN + something else → continue normally
         stored_vin = new_vin
