@@ -101,16 +101,20 @@ def detect_image_intent(img_bytes: bytes, content_type: str) -> dict:
     """
 
     # 1️⃣ Fetch active IMAGE intents from DB
-    image_intents = (
-        IntentPrompt.query
-        .filter_by(is_active=True, intent_type="image")
-        .all()
-    )
-
-    intent_keys = [row.intent_key for row in image_intents]
+    try:
+        image_intents = (
+            IntentPrompt.query
+            .filter_by(is_active=True, intent_type="image")
+            .all()
+        )
+        intent_keys = [row.intent_key for row in image_intents]
+    except Exception as e:
+        current_app.logger.error(f"DB Error fetching intents: {e}")
+        # Fallback to defaults
+        intent_keys = ["vin_plate", "part_name_request", "dashboard_warning"]
 
     if not intent_keys:
-        current_app.logger.error("No active IMAGE intents found in DB!")
+        # Should not happen with fallback, but safe check
         return "unknown"
 
     # 2️⃣ Build dynamic intent list

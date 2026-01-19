@@ -11,6 +11,7 @@ from .services.message_processor import process_user_message
 from .services.whatsapp_sender import send_whatsapp_text
 from .services.media_service import process_image_media, download_whatsapp_media
 from .services.whisper_service import transcribe_audio, clean_voice_text
+from .services.document_service import process_document_media
 from .services.media_utils import get_media_url
 from .services.intent_formater import img_format_response
 # from app import create_app
@@ -21,7 +22,7 @@ from .services.intent_formater import img_format_response
 task_queue = Queue("whatsapp", connection=redis_client)
 
 
-def process_whatsapp_message(user_id, content, msg_type="text"):
+def process_whatsapp_message(user_id, content, msg_type="text", extra_data=None):
     # ---- TEXT ----
     if msg_type == "text":
         reply = process_user_message(user_id, content)
@@ -53,3 +54,9 @@ def process_whatsapp_message(user_id, content, msg_type="text"):
         )
 
         return send_whatsapp_text(user_id, final)
+
+    # ---- DOCUMENT (PDF/Excel) ----
+    if msg_type == "document":
+        # content is media_id, extra_data is filename
+        reply = process_document_media(user_id, content, extra_data or "file.bin")
+        return send_whatsapp_text(user_id, reply)

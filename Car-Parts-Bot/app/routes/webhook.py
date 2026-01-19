@@ -125,5 +125,30 @@ def receive_message():
                         task_queue.enqueue(process_whatsapp_message, user_id, media_id, "audio")
                     except Exception as e:
                         print("❌ RQ enqueue failed:", e)
+
+                elif msg_type == "document":
+                    doc = msg.get("document", {})
+                    media_id = doc.get("id")
+                    filename = doc.get("filename", "document.bin")
+                    mime_type = doc.get("mime_type")
+
+                    try:
+                        redis_client.publish(
+                            "chatbot_events",
+                            json.dumps({
+                                "type": "user_document",
+                                "from": user_id,
+                                "media_id": media_id,
+                                "filename": filename
+                            })
+                        )
+                    except Exception as e:
+                        print("⚠️ Redis dedupe failed:", e)
+
+                    try:
+                        task_queue.enqueue(process_whatsapp_message, user_id, media_id, "document", filename)
+                    except Exception as e:
+                        print("❌ RQ enqueue failed:", e)
+
     # ALWAYS only one final response
     return jsonify({"status": "ok"}), 200

@@ -418,12 +418,70 @@ from app.session_store import get_session, save_session, set_vin, set_awaiting
 from collections import defaultdict
 translator = TranslationService()
 
+
+def handle_vin_input(new_vin: str, user_id: str, session: dict, message: str = "", old_vin: str = None) -> str:
+    """
+    Reusable logic for when a VIN is detected (via Text, OCR, or PDF).
+    Returns a response string or None if it should fall through.
+    """
+    # Save / overwrite VIN
+    set_vin(session, new_vin)
+    set_awaiting(session, "part_name")
+    session["entities"]["part"] = None
+    save_session(user_id, session)
+
+    # Check if message is VIN-only
+    # If called from a document upload, original_message might be empty or just the filename, so we assume VIN-only behavior if mostly empty.
+    residual = ""
+    if message:
+        residual = re.sub(re.escape(new_vin), '', message, flags=re.IGNORECASE)
+        residual = re.sub(rf'(?i)\b({FILLER_WORDS})\b', '', residual)
+        residual = re.sub(r'[^a-zA-Z]', '', residual)
+        print(f"DEBUG: Message='{message}' | Residual after VIN removal='{residual}'")
+
+    if not residual:
+        try:
+            # 1. Initialize Scraper
+            scraper = get_scraper()
+            if scraper is None:
+                return "SCRAPER NOT ACCESSIBLE"
+            vehicle_info = scraper.get_vehicle_details(new_vin)
+
+            if vehicle_info:
+                # 3. Format the Response
+                if old_vin and old_vin != new_vin:
+                    return (
+                        f"🚗 **Vehicle Identified!**\n"
+                        f"**Brand:** {vehicle_info.get('brand', 'N/A')}\n"
+                        f"**Name:** {vehicle_info.get('name', 'N/A')}\n"
+                        f"**Year:** {vehicle_info.get('date', 'N/A')}\n\n"
+                        f"I've updated this chassis number. Please tell me which part you need! 🔧"
+                    )
+                return (
+                    f"🚗 **Vehicle Identified!**\n"
+                    f"**Brand:** {vehicle_info.get('brand', 'N/A')}\n"
+                    f"**Name:** {vehicle_info.get('name', 'N/A')}\n"
+                    # f"**Model:** {vehicle_info.get('model', 'N/A')}\n"
+                    f"**Year:** {vehicle_info.get('date', 'N/A')}\n\n"
+                    f"I've saved this chassis number. Please tell me which part you need! 🔧"
+                )
+        except Exception as e:
+            print(f"[!] Error fetching vehicle details: {e}")
+            # If it fails, it will just fall through to the standard message below
+            pass
+
+    # FALLBACK if scraper fails or no residual text
+    return (
+        f"I've saved this chassis number **{new_vin}**. 🚗\n\n"
+        f"Please tell me which part you need! (e.g., 'Brake Pads')"
+    )
+
 FILLER_WORDS = (
-    r'hi|hello|please|price|cost|need|'
+    r'hi|hello|please|price|cost|need|ve|will|'
     r'for|give|me|want|search|find|'
-    r'my|our|your|i|we|us|of|also|with|without|about|'
+    r'my|our|your|i|we|us|of|also|with|without|about|ll|proceed|request|'
     r'chassis|chasis|vin|number|numer|is|this|'
-    r'the|and|send|sent|show|get|car|vehicle'
+    r'the|and|send|sent|show|get|car|vehicle|I|identified|the|VIN|'
 )
 
 # from app.services.gpt_service import gpt
@@ -463,17 +521,6 @@ def process_user_message(user_id: str, message: str) -> str:
         residual = re.sub(rf'(?i)\b({FILLER_WORDS})\b', '', residual)
         residual = re.sub(r'[^a-zA-Z]', '', residual)
         print(f"DEBUG: Message='{message}' | Residual after VIN removal='{residual}'")
-        # if not residual:
-        #     if old_vin and old_vin != new_vin:
-        #         return (
-        #             "I've updated your VIN 🚗.\n\n"
-        #             "Please tell me which part you need."
-        #         )
-
-        #     return (
-        #         "Thank you! I've saved your chassis number 🚗.\n\n"
-        #         "Please tell me which part you need."
-        #     )
         if not residual:
             try:
                 # 1. Initialize Scraper
@@ -570,86 +617,95 @@ def process_user_message(user_id: str, message: str) -> str:
             print("Normalized part numbers:", part_numbers)
             if not part_numbers and entities.get("part_number"):
                 part_numbers = [entities.get("part_number")]
-            if not part_numbers:
-                return gpt.format_response([], intent, language)
-            # results_by_pn = {}
+            
+            return handle_part_number_search(part_numbers, intent, language)
 
-            if part_numbers:
-                # 🔒 Build normalized DB expression ONCE
-                normalized_db_pn = func.upper(Stock.part_number)
-                for ch in ['-', ' ', '+', '%', '$', '_', '/', '.', ',', ':', ';', '#', '@', '!', '*',
-                        '(', ')', '?', '&', '=', '<', '>', '~', '`', '|', '^', '"', "'",
-                        '~', '´', '“', '”', '‘', '’', '–', '—', '•', '…', '{', '}', '[', ']']:
-                    normalized_db_pn = func.replace(normalized_db_pn, ch, '')
+def handle_part_number_search(part_numbers: list[str], intent: str, language: str) -> str:
+    """
+    Reusable logic for searching a list of part numbers in the database.
+    """
+    gpt = GPTService()
+    
+    if not part_numbers:
+        return gpt.format_response([], intent, language)
+    # results_by_pn = {}
 
-                # -------------------------------
-                # STEP 1: Match all input PNs
-                # -------------------------------
-                matched_parts = []
-                matched_tags = set()
+    if part_numbers:
+        # 🔒 Build normalized DB expression ONCE
+        normalized_db_pn = func.upper(Stock.part_number)
+        for ch in ['-', ' ', '+', '%', '$', '_', '/', '.', ',', ':', ';', '#', '@', '!', '*',
+                '(', ')', '?', '&', '=', '<', '>', '~', '`', '|', '^', '"', "'",
+                '~', '´', '“', '”', '‘', '’', '–', '—', '•', '…', '{', '}', '[', ']']:
+            normalized_db_pn = func.replace(normalized_db_pn, ch, '')
 
-                for pn in part_numbers:
-                    pn_clean = normalize_part_number(pn)
-                    if not pn_clean:
-                        continue
-                    parts = (
-                        db.session.query(Stock)
-                        .filter(normalized_db_pn == pn_clean)
-                        .all()
-                    )
-                    
-                    for p in parts:
-                        matched_parts.append(p)
-                        if p.tag:
-                            matched_tags.add(p.tag)
+        # -------------------------------
+        # STEP 1: Match all input PNs
+        # -------------------------------
+        matched_parts = []
+        matched_tags = set()
 
-                    if not matched_tags:
-                        return (
-                            f"Sorry, we couldn't find any parts matching the provided "
-                            f"part number(s). Our team will assist you shortly. 😊"
-                        )
-                    
-                    # -------------------------------
-                    # STEP 3: Fetch ALL sibling parts
-                    # -------------------------------
-                    siblings = (
-                        db.session.query(Stock)
-                        .filter(Stock.tag.in_(matched_tags))
-                        .order_by(Stock.tag, Stock.price.asc())
-                        .all()
-                    )
+        for pn in part_numbers:
+            pn_clean = normalize_part_number(pn)
+            if not pn_clean:
+                continue
+            parts = (
+                db.session.query(Stock)
+                .filter(normalized_db_pn == pn_clean)
+                .all()
+            )
+            
+            for p in parts:
+                matched_parts.append(p)
+                if p.tag:
+                    matched_tags.add(p.tag)
 
-                    # -------------------------------
-                    # STEP 4: Deduplicate results
-                    # -------------------------------
-                    unique_parts = {}
-                    for p in siblings:
-                        dedupe_key = (p.part_number, p.brand,p.price)
-                        unique_parts[dedupe_key] = p
+            if not matched_tags:
+                return (
+                    f"Sorry, we couldn't find any parts matching the provided "
+                    f"part number(s). Our team will assist you shortly. 😊"
+                )
+            
+            # -------------------------------
+            # STEP 3: Fetch ALL sibling parts
+            # -------------------------------
+            siblings = (
+                db.session.query(Stock)
+                .filter(Stock.tag.in_(matched_tags))
+                .order_by(Stock.tag, Stock.price.asc())
+                .all()
+            )
 
-                    final_parts = list(unique_parts.values())
+            # -------------------------------
+            # STEP 4: Deduplicate results
+            # -------------------------------
+            unique_parts = {}
+            for p in siblings:
+                dedupe_key = (p.part_number, p.brand,p.price)
+                unique_parts[dedupe_key] = p
 
-                    results = [
-                        {
-                            "name": p.item_desc,
-                            "part_number": p.part_number,
-                            "brand": p.brand,
-                            "price": float(p.price) if p.price is not None else None,
-                            "qty": p.qty,
-                            "tag": p.tag,
-                        }
-                        for p in final_parts
-                    ]
-                is_multiple = len(part_numbers) > 1
-                # print("Final results for part number handling:", results)
-        
-                grouped_results = defaultdict(list)
+            final_parts = list(unique_parts.values())
 
-                for r in results:
-                    tag = r.get("tag", "OTHER")
-                    grouped_results[tag].append(r)
-                # print("Grouped results:", dict(grouped_results))
-                return gpt.format_response(grouped_results, intent, language,is_multiple)
+            results = [
+                {
+                    "name": p.item_desc,
+                    "part_number": p.part_number,
+                    "brand": p.brand,
+                    "price": float(p.price) if p.price is not None else None,
+                    "qty": p.qty,
+                    "tag": p.tag,
+                }
+                for p in final_parts
+            ]
+        is_multiple = len(part_numbers) > 1
+        # print("Final results for part number handling:", results)
+
+        grouped_results = defaultdict(list)
+
+        for r in results:
+            tag = r.get("tag", "OTHER")
+            grouped_results[tag].append(r)
+        # print("Grouped results:", dict(grouped_results))
+        return gpt.format_response(grouped_results, intent, language,is_multiple)
         
     if stored_vin and intent=="part_name_request":
         part_name = gpt.extract_part_name_with_gpt(message)
