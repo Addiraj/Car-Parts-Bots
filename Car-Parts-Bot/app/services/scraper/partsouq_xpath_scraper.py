@@ -211,16 +211,17 @@ class PartSouqXPathScraper:
             # Note: We use [0] because xpath returns a list
             brand = tree.xpath("//td[@data-title='Brand']")[0].text_content().strip()
             name = tree.xpath("//td[@data-title='Name']")[0].text_content().strip()
-            model = tree.xpath("//td[@data-title='Model']")[0].text_content().strip()
+            # model = tree.xpath("//td[@data-title='Model']")[0].text_content().strip()
+
 
             # Date can sometimes be 'Date' or 'Vehicle Date'
-            date_nodes = tree.xpath("//td[@data-title='Date'] | //td[@data-title='Vehicle Date']")
+            date_nodes = tree.xpath("//td[@data-title='Date'] | //td[@data-title='Vehicle Date'] | //td[@data-title='Manufactured']")
             date = date_nodes[0].text_content().strip() if date_nodes else "N/A"
 
             return {
                 "brand": brand,
                 "name": name,
-                "model": model,
+                # "model": model,
                 "date": date
             }
         except Exception as e:

@@ -489,16 +489,15 @@ def process_user_message(user_id: str, message: str) -> str:
                             f"🚗 **Vehicle Identified!**\n"
                             f"**Brand:** {vehicle_info.get('brand', 'N/A')}\n"
                             f"**Name:** {vehicle_info.get('name', 'N/A')}\n"
-                            f"**Model:** {vehicle_info.get('model', 'N/A')}\n"
-                            f"**Date:** {vehicle_info.get('date', 'N/A')}\n\n"
+                            f"**Year:** {vehicle_info.get('date', 'N/A')}\n\n"
                             f"I've updated this chassis number. Please tell me which part you need! 🔧"
                         )
                     return (
                         f"🚗 **Vehicle Identified!**\n"
                         f"**Brand:** {vehicle_info.get('brand', 'N/A')}\n"
                         f"**Name:** {vehicle_info.get('name', 'N/A')}\n"
-                        f"**Model:** {vehicle_info.get('model', 'N/A')}\n"
-                        f"**Date:** {vehicle_info.get('date', 'N/A')}\n\n"
+                        # f"**Model:** {vehicle_info.get('model', 'N/A')}\n"
+                        f"**Year:** {vehicle_info.get('date', 'N/A')}\n\n"
                         f"I've saved this chassis number. Please tell me which part you need! 🔧"
                     )
             except Exception as e:
@@ -664,7 +663,7 @@ def process_user_message(user_id: str, message: str) -> str:
             search_result = scraper.search_part(stored_vin, part_name)
         except Exception:
             return "Our system encountered an error. Our team will assist you shortly. 😊"
-
+        print("Search result:", search_result)
         if "error" not in search_result and search_result.get("parts"):
             found_oem_numbers = {
                 normalize_pn(p["number"])
@@ -704,7 +703,7 @@ def process_user_message(user_id: str, message: str) -> str:
 
             return (
                 "I couldn't find this part for your vehicle right now.\n"
-                "Please try another part name or our team will assist you shortly. 😊"
+                "Our team will assist you shortly. 😊"
             )
         else:
             return (
