@@ -402,6 +402,7 @@ class GPTService:
         intent: str,
         language: str = "en",
         is_multi_input: bool = False,
+        vehicle_info: Dict[str, str] = None,
     ) -> str:
         """
         Format search results into a natural language WhatsApp-style response.
@@ -431,9 +432,9 @@ class GPTService:
                 for r in items:
                     results_text += f"• *Item:* {r.get('name', 'N/A')}\n"
                     if r.get("brand"):
-                        results_text += f"  *Brand:* {r.get('brand')}\n"
+                        results_text += f"• *Brand:* {r.get('brand')}\n"
                     if r.get("price") is not None:
-                        results_text += f"  *Price:* {r.get('price')} AED\n"
+                        results_text += f"• *Price:* {r.get('price')} AED\n"
                     results_text += "\n"
         # ----------------------------
         # Helper line based on input
@@ -444,6 +445,17 @@ class GPTService:
             )
         else:
             helper_line = "Here are the available parts for your request."
+
+        # ----------------------------
+        # Vehicle Info Block
+        # ----------------------------
+        vehicle_block = ""
+        if vehicle_info:
+            vehicle_block = (
+                f"**Brand:** {vehicle_info.get('brand', 'N/A')}\n"
+                f"**Name:** {vehicle_info.get('name', 'N/A')}\n"
+                f"**Year:** {vehicle_info.get('date', 'N/A')}\n"
+            )
 
         # ----------------------------
         # User prompt
@@ -480,6 +492,9 @@ class GPTService:
 
             ---
 
+            Vehicle Information (if present, show exactly as is):
+            {vehicle_block}
+
             Database results (DO NOT MODIFY):
 
             {results_text}
@@ -488,12 +503,19 @@ class GPTService:
 
             Response structure:
             1️⃣ Friendly greeting in {language}
-            2️⃣ Short helper line (translated): "{helper_line}"
-            3️⃣ Bullet list for each item:
-            • *Item:* <EXACT Product Name>
-            • *Brand:* <EXACT Brand Name>
-            • *Price:* <EXACT Price Value>
-            4️⃣ Closing sentence (translated):
+            2️⃣ Vehicle Details Block (ONLY IF PROVIDED ABOVE):
+            **Brand:** ...
+            **Name:** ...
+            **Year:** ...
+            (Use double asterisks for bolding headers in this specific block if requested)
+            3️⃣ Short helper line (translated): "{helper_line}"
+            4️⃣ Database Results (Preserve Grouping):
+               - If a line starts with 🔹, keep it EXACTLY as is (do not translate or remove).
+               - Then list items for that group:
+               • *Item:* <EXACT Product Name>
+               • *Brand:* <EXACT Brand Name>
+               • *Price:* <EXACT Price Value>
+            5️⃣ Closing sentence (translated):
             "If you need any help, I’m here to help you 😊"
             """
 

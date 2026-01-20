@@ -756,10 +756,18 @@ def process_user_message(user_id: str, message: str) -> str:
                     "qty": p.qty,
                 } for p in stock_parts]
 
+                # Fetch vehicle info for richer response
+                vehicle_info = None
+                try:
+                    vehicle_info = scraper.get_vehicle_details(stored_vin)
+                except Exception as e:
+                    print(f"Failed to fetch vehicle info for response: {e}")
+
                 return gpt.format_response(
                     {"RESULTS": formatted},
                     "part_number",
-                    language
+                    language,
+                    vehicle_info=vehicle_info
                 )
 
             return (
