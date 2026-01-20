@@ -137,7 +137,7 @@ class TranslationService:
         """
         Generic translation (auto → target).
         """
-        if not text or target_language == BASE_LANG:
+        if not text:
             return text
 
         try:

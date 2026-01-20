@@ -80,7 +80,7 @@ def process_pdf(user_id: str, file_path: str, filename: str) -> str:
     text_content = ""
     try:
         with pdfplumber.open(file_path) as pdf:
-            # check first 2 pages
+            # check first 5 pages
             if len(pdf.pages) > 5:
                 return "You cannot upload pdf more than 5 pages."
 
@@ -119,11 +119,10 @@ def process_pdf(user_id: str, file_path: str, filename: str) -> str:
         print(valid_part_numbers)
         if valid_part_numbers:
             print(f"✅ Found {len(valid_part_numbers)} potential part numbers in PDF Text (quantities filtered).")
-            return handle_part_number_search(valid_part_numbers, intent="partnumber_handling", language="en")
+            return handle_part_number_search(valid_part_numbers, intent="part_number_handling", language="en")
         
         # If text was found but NO VIN and NO Part Numbers -> Fallthrough to Image Fallback
         # (It might be a scanned image with some OCR garbage text)
-    
     
     # 2. FALLBACK: Scanned PDF (Image)
     print("⚠️ No VIN found in text. Attempting OCR/Vision via Image Conversion...")
@@ -223,7 +222,7 @@ def process_excel_or_csv(user_id: str, file_path: str, ext: str) -> str:
         print(f"✅ Found {len(clean_parts)} part numbers in Excel.")
         print(clean_parts)  
         # Reuse existing logic
-        return handle_part_number_search(clean_parts, intent="partnumber_handling", language="en")
+        return handle_part_number_search(clean_parts, intent="part_number_handling", language="en")
 
     except Exception as e:
         print(f"Excel parse error: {e}")

@@ -129,21 +129,21 @@ class GPTService:
         # clean_upper = clean_text.upper()
 
         # ---------- VIN FAST PATH ----------
-        VIN_REGEX = re.compile(r"^[A-HJ-NPR-Z0-9]{17}$")
-        lines = [l.strip() for l in clean_text.splitlines() if l.strip()]
+        # VIN_REGEX = re.compile(r"^[A-HJ-NPR-Z0-9]{17}$")
+        # lines = [l.strip() for l in clean_text.splitlines() if l.strip()]
 
-        for line in lines:
-            if VIN_REGEX.fullmatch(line.upper()):
-                print("FAST PATH VIN MATCH")
-                result = {
-                    "intent": "vin_handling",
-                    "entities": {},
-                    "language": "en",
-                    "confidence": 0.9,
-                    "fallback_required": False
-                }
-                redis_client.setex(cache_key, 3600, json.dumps(result))
-                return result
+        # for line in lines:
+        #     if VIN_REGEX.fullmatch(line.upper()):
+        #         print("FAST PATH VIN MATCH")
+        #         result = {
+        #             "intent": "vin_handling",
+        #             "entities": {},
+        #             "language": "en",
+        #             "confidence": 0.9,
+        #             "fallback_required": False
+        #         }
+        #         redis_client.setex(cache_key, 3600, json.dumps(result))
+        #         return result
 
         # 2. Fast Path: Regex for Part Numbers
         # If it looks like a part number usage (mostly alphanumeric, dashes, short), skip GPT
@@ -154,7 +154,7 @@ class GPTService:
         if (PART_NUMBER_REGEX.fullmatch(clean_text.upper()) and sum(c.isdigit() for c in clean_text) >= 2 and " " not in clean_text.strip()):
              print("FAST PATH PART NUMBER MATCH")
              result = {
-                 "intent": "partnumber_handling",
+                 "intent": "part_number_handling",
                  "entities": {"part_numbers": [clean_text.upper()], "part_number": clean_text.upper()}, 
                  "language": "en", # Assume EN for codes
                  "confidence": 1.0,
@@ -331,40 +331,12 @@ class GPTService:
         return response.choices[0].message.content.strip()
     
     def extract_part_name_with_gpt(self, message: str) -> str | None:
-        PART_NAME_EXTRACTION_PROMPT = """
-            You are a part-name extraction engine for an automotive spare parts system.
-
-            Your task:
-            - Extract the automotive PART NAME from the user message.
-            - A part name is a physical car component (e.g. oil filter, brake pads, radiator).
-
-            Rules:
-            - Ignore VIN numbers, car brands, emotions, abuse, greetings, and filler text.
-            - If NO clear part name is present, return null.
-            - Do NOT guess.
-            - Do NOT infer.
-            - Do NOT return generic words like "parts".
-            - Do NOT return sentences.
-
-            Output STRICT JSON only in this format:
-            {
-            "part_name": "<string or null>"
-            }
-
-            Examples:
-
-            Input: "I want oil filter for my car"
-            Output: { "part_name": "oil filter" }
-
-            Input: "front brake pads price"
-            Output: { "part_name": "front brake pads" }
-
-            Input: "give me parts for BMW"
-            Output: { "part_name": null }
-
-            Input: "YOU ARE TRASH"
-            Output: { "part_name": null }
-            """
+        prompt = IntentPrompt.query.filter_by(
+            intent_key="normalize_part_name",
+            intent_type="text",
+            is_active=True
+        ).first()
+        PART_NAME_EXTRACTION_PROMPT = prompt.prompt_text
 
         raw = self.run_system_prompt(
             prompt_text=PART_NAME_EXTRACTION_PROMPT,
@@ -613,7 +585,7 @@ class GPTService:
 
         # Check for part number pattern (alphanumeric, often with dashes)
         if re.search(r"\b[A-Z0-9\-]{4,}\b", message.upper()):
-            return {"intent": "partnumber_handling", "entities": {}, "language": language or "en"}
+            return {"intent": "part_number_handling", "entities": {}, "language": language or "en"}
 
         # Check for chassis/VIN pattern
         if "chassis" in message_lower or "vin" in message_lower:

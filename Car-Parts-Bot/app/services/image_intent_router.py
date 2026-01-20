@@ -111,7 +111,7 @@ def detect_image_intent(img_bytes: bytes, content_type: str) -> dict:
     except Exception as e:
         current_app.logger.error(f"DB Error fetching intents: {e}")
         # Fallback to defaults
-        intent_keys = ["vin_plate", "part_name_request", "dashboard_warning"]
+        intent_keys = ["vin_plate", "car_part_request", "dashboard_warning"]
 
     if not intent_keys:
         # Should not happen with fallback, but safe check

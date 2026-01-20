@@ -4,6 +4,7 @@ from ..services.vin_ocr import download_media_blob, run_chassis_ocr
 from ..services.image_intent_router import detect_image_intent
 from ..services.extract_vin_service import extract_vin_from_text
 from ..services.image_intent_executor import run_image_intent
+from app.services.scraper.partsouq_xpath_scraper import get_scraper
 from app.session_store import get_session, save_session
 import time
 
@@ -42,6 +43,20 @@ def process_image_media(user_id,media_id: str) -> dict:
             session["entities"]["vin"] = vin
             session["context"]["vin_set_at"] = time.time()
             save_session(user_id, session)
+            scraper = get_scraper()
+            if scraper is None:
+                return "SCRAPER NOT ACCESSIBLE"
+            vehicle_info = scraper.get_vehicle_details(vin)
+
+            if vehicle_info:
+                # 3. Format the Response
+                return (
+                    f"🚗 **Vehicle Identified!**\n"
+                    f"**Brand:** {vehicle_info.get('brand', 'N/A')}\n"
+                    f"**Name:** {vehicle_info.get('name', 'N/A')}\n"
+                    f"**Year:** {vehicle_info.get('date', 'N/A')}\n\n"
+                    f"I've saved this chassis number. Please tell me which part you need! 🔧"
+                )
             print(session)
 
         # Ensure consistent output

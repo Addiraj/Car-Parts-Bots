@@ -411,7 +411,7 @@ from app.extensions import db
 from app.models import Stock
 from app.services.gpt_service import GPTService
 from app.services.translation_service import TranslationService
-from app.services.extract_vin_service import extract_vin_from_text
+from app.services.extract_vin_service import extract_vin_from_text , get_vin_validation_error
 from app.services.scraper.partsouq_xpath_scraper import get_scraper
 from app.services.lead_service import lead_service
 from app.session_store import get_session, save_session, set_vin, set_awaiting
@@ -501,15 +501,21 @@ def process_user_message(user_id: str, message: str) -> str:
     # ======================================================
     session = get_session(user_id)
     stored_vin = session["entities"].get("vin")
-
     # ======================================================
     # 2️⃣ DETECT VIN IN CURRENT MESSAGE (ALWAYS FIRST)
     # ======================================================
     new_vin = extract_vin_from_text(message)
+    print("NEW VIN:", new_vin)
 
+    # 2a. If no valid VIN, check for VIN-like errors (typos, length, etc.)
+    if not new_vin:
+        vin_error = get_vin_validation_error(message)
+        if vin_error:
+            # We found something that looks like a broken VIN.
+            # Fail fast and tell the user.
+            return vin_error
     if new_vin:
         old_vin = stored_vin
-
         # Save / overwrite VIN
         set_vin(session, new_vin)
         set_awaiting(session, "part_name")
@@ -547,6 +553,8 @@ def process_user_message(user_id: str, message: str) -> str:
                         f"**Year:** {vehicle_info.get('date', 'N/A')}\n\n"
                         f"I've saved this chassis number. Please tell me which part you need! 🔧"
                     )
+                else:
+                    return "Our team will conatact you soon."
             except Exception as e:
                 print(f"[!] Error fetching vehicle details: {e}")
                 # If it fails, it will just fall through to the standard message below
@@ -561,7 +569,7 @@ def process_user_message(user_id: str, message: str) -> str:
     print("PROCEEDING WITH NORMAL FLOW")
     
     JSON_ONLY_INTENTS = {
-        "partnumber_handling",
+        "part_number_handling",
     }
  
     # ---- 1. Intent Classification ----
@@ -598,7 +606,7 @@ def process_user_message(user_id: str, message: str) -> str:
         # ======================================================
         #  LOGIC 1: PART NUMBER (User gave explicit part code)
         # ======================================================
-        if intent == "partnumber_handling":
+        if intent == "part_number_handling":
             # Block natural language queries pretending to be part numbers
             alpha_chars = sum(c.isalpha() for c in message)
             total_chars = max(len(message), 1)
@@ -617,8 +625,161 @@ def process_user_message(user_id: str, message: str) -> str:
             print("Normalized part numbers:", part_numbers)
             if not part_numbers and entities.get("part_number"):
                 part_numbers = [entities.get("part_number")]
-            
-            return handle_part_number_search(part_numbers, intent, language)
+            if not part_numbers:
+                return gpt.format_response([], intent, language)
+            # results_by_pn = {}
+
+            if part_numbers:
+                # 🔒 Build normalized DB expression ONCE
+                normalized_db_pn = func.upper(Stock.part_number)
+                for ch in ['-', ' ', '+', '%', '$', '_', '/', '.', ',', ':', ';', '#', '@', '!', '*',
+                        '(', ')', '?', '&', '=', '<', '>', '~', '`', '|', '^', '"', "'",
+                        '~', '´', '“', '”', '‘', '’', '–', '—', '•', '…', '{', '}', '[', ']']:
+                    normalized_db_pn = func.replace(normalized_db_pn, ch, '')
+
+                # -------------------------------
+                # STEP 1: Match all input PNs
+                # -------------------------------
+                matched_parts = []
+                matched_tags = set()
+
+                for pn in part_numbers:
+                    pn_clean = normalize_part_number(pn)
+                    if not pn_clean:
+                        continue
+                    parts = (
+                        db.session.query(Stock)
+                        .filter(normalized_db_pn == pn_clean)
+                        .all()
+                    )
+                    
+                    for p in parts:
+                        matched_parts.append(p)
+                        if p.tag:
+                            matched_tags.add(p.tag)
+
+                    if not matched_tags:
+                        return (
+                            f"Sorry, we couldn't find any parts matching the provided "
+                            f"part number(s). Our team will assist you shortly. 😊"
+                        )
+                    
+                    # -------------------------------
+                    # STEP 3: Fetch ALL sibling parts
+                    # -------------------------------
+                    siblings = (
+                        db.session.query(Stock)
+                        .filter(Stock.tag.in_(matched_tags))
+                        .order_by(Stock.tag, Stock.price.asc())
+                        .all()
+                    )
+
+                    # -------------------------------
+                    # STEP 4: Deduplicate results
+                    # -------------------------------
+                    unique_parts = {}
+                    for p in siblings:
+                        dedupe_key = (p.part_number, p.brand,p.price)
+                        unique_parts[dedupe_key] = p
+
+                    final_parts = list(unique_parts.values())
+
+                    results = [
+                        {
+                            "name": p.item_desc,
+                            "part_number": p.part_number,
+                            "brand": p.brand,
+                            "price": float(p.price) if p.price is not None else None,
+                            "qty": p.qty,
+                            "tag": p.tag,
+                        }
+                        for p in final_parts
+                    ]
+                is_multiple = len(part_numbers) > 1
+                # print("Final results for part number handling:", results)
+        
+                grouped_results = defaultdict(list)
+
+                for r in results:
+                    tag = r.get("tag", "OTHER")
+                    grouped_results[tag].append(r)
+                # print("Grouped results:", dict(grouped_results))
+                return gpt.format_response(grouped_results, intent, language,is_multiple)
+        
+    if stored_vin and intent=="car_part_request":
+        if language and language != "en":
+            try:
+                print("GO TO TRANSLATION FOR PART NAME REQUEST")
+                message = translator.translate(message, "en")
+            except Exception as e:
+                print(f"Translation failed: {e}")
+        part_name = gpt.extract_part_name_with_gpt(message)
+        if not part_name:
+            return "Please tell me the part name you are looking for (e.g. Oil Filter, Brake Pads)."
+
+        print(f"USING STORED VIN {stored_vin} FOR PART {part_name}")
+        try:
+            scraper = get_scraper()
+            #WE CAN FETCH MODEL YEAR CAR BRAND IF NEEDED FROM VIN
+            search_result = scraper.search_part(stored_vin, part_name)
+        except Exception:
+            return "Our system encountered an error. Our team will assist you shortly. 😊"
+        print("Search result:", search_result)
+        if "error" not in search_result and search_result.get("parts"):
+            found_oem_numbers = {
+                normalize_pn(p["number"])
+                for p in search_result["parts"]
+                if p.get("number") and p["number"] != "N/A"
+            }
+
+            if not found_oem_numbers:
+                return "No part numbers found. Our team will assist you."
+
+            normalized_db_pn = func.upper(Stock.part_number)
+            for ch in ['-', ' ', '+', '%', '$', '_', '/', '.', ',', ':', ';', '#', '@', '!', '*',
+                        '(', ')', '?', '&', '=', '<', '>', '~', '`', '|', '^', '"', "'",
+                        '~', '´', '“', '”', '‘', '’', '–', '—', '•', '…', '{', '}', '[', ']']:
+                normalized_db_pn = func.replace(normalized_db_pn, ch, '')
+
+            stock_parts = (
+                db.session.query(Stock)
+                .filter(normalized_db_pn.in_(found_oem_numbers))
+                .all()
+            )
+            print("Matched stock parts with stored VIN:", stock_parts)
+            if stock_parts:
+                formatted = [{
+                    "name": p.item_desc,
+                    "part_number": p.part_number,
+                    "brand": p.brand,
+                    "price": float(p.price) if p.price else None,
+                    "qty": p.qty,
+                } for p in stock_parts]
+
+                return gpt.format_response(
+                    {"RESULTS": formatted},
+                    "part_number",
+                    language
+                )
+
+            return (
+                "I couldn't find this part for your vehicle right now.\n"
+                "Our team will assist you shortly. 😊"
+            )
+        else:
+            return (
+                "Our team will assist you shortly. 😊"
+            )
+    # ---- 4. Reply Only Intents (Greetings, brand support, etc.) ----
+    reply = gpt.generate_plain_response(message, intent)
+    if not reply:
+        return gpt.get_fallback_menu(language)
+ 
+    # Translate if needed (GPT already handles language in most cases)
+    if language and language != "en":
+        reply = gpt.translation_service.translate(reply, language)
+    print("FINAL REPLY:")
+    return reply
 
 def handle_part_number_search(part_numbers: list[str], intent: str, language: str) -> str:
     """
@@ -707,71 +868,71 @@ def handle_part_number_search(part_numbers: list[str], intent: str, language: st
         # print("Grouped results:", dict(grouped_results))
         return gpt.format_response(grouped_results, intent, language,is_multiple)
         
-    if stored_vin and intent=="part_name_request":
-        part_name = gpt.extract_part_name_with_gpt(message)
-        if not part_name:
-            return "Please tell me the part name you are looking for (e.g. Oil Filter, Brake Pads)."
+    # if stored_vin and intent=="car_part_request":
+    #     part_name = gpt.extract_part_name_with_gpt(message)
+    #     if not part_name:
+    #         return "Please tell me the part name you are looking for (e.g. Oil Filter, Brake Pads)."
 
-        print(f"USING STORED VIN {stored_vin} FOR PART {part_name}")
-        try:
-            scraper = get_scraper()
-            #WE CAN FETCH MODEL YEAR CAR BRAND IF NEEDED FROM VIN
-            search_result = scraper.search_part(stored_vin, part_name)
-        except Exception:
-            return "Our system encountered an error. Our team will assist you shortly. 😊"
-        print("Search result:", search_result)
-        if "error" not in search_result and search_result.get("parts"):
-            found_oem_numbers = {
-                normalize_pn(p["number"])
-                for p in search_result["parts"]
-                if p.get("number") and p["number"] != "N/A"
-            }
+    #     print(f"USING STORED VIN {stored_vin} FOR PART {part_name}")
+    #     try:
+    #         scraper = get_scraper()
+    #         #WE CAN FETCH MODEL YEAR CAR BRAND IF NEEDED FROM VIN
+    #         search_result = scraper.search_part(stored_vin, part_name)
+    #     except Exception:
+    #         return "Our system encountered an error. Our team will assist you shortly. 😊"
+    #     print("Search result:", search_result)
+    #     if "error" not in search_result and search_result.get("parts"):
+    #         found_oem_numbers = {
+    #             normalize_pn(p["number"])
+    #             for p in search_result["parts"]
+    #             if p.get("number") and p["number"] != "N/A"
+    #         }
 
-            if not found_oem_numbers:
-                return "No part numbers found. Our team will assist you."
+    #         if not found_oem_numbers:
+    #             return "No part numbers found. Our team will assist you."
 
-            normalized_db_pn = func.upper(Stock.part_number)
-            for ch in ['-', ' ', '+', '%', '$', '_', '/', '.', ',', ':', ';', '#', '@', '!', '*',
-                        '(', ')', '?', '&', '=', '<', '>', '~', '`', '|', '^', '"', "'",
-                        '~', '´', '“', '”', '‘', '’', '–', '—', '•', '…', '{', '}', '[', ']']:
-                normalized_db_pn = func.replace(normalized_db_pn, ch, '')
+    #         normalized_db_pn = func.upper(Stock.part_number)
+    #         for ch in ['-', ' ', '+', '%', '$', '_', '/', '.', ',', ':', ';', '#', '@', '!', '*',
+    #                     '(', ')', '?', '&', '=', '<', '>', '~', '`', '|', '^', '"', "'",
+    #                     '~', '´', '“', '”', '‘', '’', '–', '—', '•', '…', '{', '}', '[', ']']:
+    #             normalized_db_pn = func.replace(normalized_db_pn, ch, '')
 
-            stock_parts = (
-                db.session.query(Stock)
-                .filter(normalized_db_pn.in_(found_oem_numbers))
-                .all()
-            )
-            print("Matched stock parts with stored VIN:", stock_parts)
-            if stock_parts:
-                formatted = [{
-                    "name": p.item_desc,
-                    "part_number": p.part_number,
-                    "brand": p.brand,
-                    "price": float(p.price) if p.price else None,
-                    "qty": p.qty,
-                } for p in stock_parts]
+    #         stock_parts = (
+    #             db.session.query(Stock)
+    #             .filter(normalized_db_pn.in_(found_oem_numbers))
+    #             .all()
+    #         )
+    #         print("Matched stock parts with stored VIN:", stock_parts)
+    #         if stock_parts:
+    #             formatted = [{
+    #                 "name": p.item_desc,
+    #                 "part_number": p.part_number,
+    #                 "brand": p.brand,
+    #                 "price": float(p.price) if p.price else None,
+    #                 "qty": p.qty,
+    #             } for p in stock_parts]
 
-                return gpt.format_response(
-                    {"RESULTS": formatted},
-                    "part_number",
-                    language
-                )
+    #             return gpt.format_response(
+    #                 {"RESULTS": formatted},
+    #                 "part_number",
+    #                 language
+    #             )
 
-            return (
-                "I couldn't find this part for your vehicle right now.\n"
-                "Our team will assist you shortly. 😊"
-            )
-        else:
-            return (
-                "Our team will assist you shortly. 😊"
-            )
-    # ---- 4. Reply Only Intents (Greetings, brand support, etc.) ----
-    reply = gpt.generate_plain_response(message, intent)
-    if not reply:
-        return gpt.get_fallback_menu(language)
+    #         return (
+    #             "I couldn't find this part for your vehicle right now.\n"
+    #             "Our team will assist you shortly. 😊"
+    #         )
+    #     else:
+    #         return (
+    #             "Our team will assist you shortly. 😊"
+    #         )
+    # # ---- 4. Reply Only Intents (Greetings, brand support, etc.) ----
+    # reply = gpt.generate_plain_response(message, intent)
+    # if not reply:
+    #     return gpt.get_fallback_menu(language)
  
-    # Translate if needed (GPT already handles language in most cases)
-    if language and language != "en":
-        reply = gpt.translation_service.translate(reply, language)
-    print("FINAL REPLY:")
-    return reply
+    # # Translate if needed (GPT already handles language in most cases)
+    # if language and language != "en":
+    #     reply = gpt.translation_service.translate(reply, language)
+    # print("FINAL REPLY:")
+    # return reply
