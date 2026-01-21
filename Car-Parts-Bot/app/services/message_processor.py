@@ -446,8 +446,15 @@ def handle_vin_input(new_vin: str, user_id: str, session: dict, message: str = "
             if scraper is None:
                 return "SCRAPER NOT ACCESSIBLE"
             vehicle_info = scraper.get_vehicle_details(new_vin)
-
-            if vehicle_info:
+            vehicle_brand = vehicle_info.get('brand', 'N/A')
+            
+            # Normalize and check supported brands
+            supported_brands = ["BMW", "MERCEDES", "ROLLS ROYCE", "MINI", "HONDA"]
+            brand_upper = vehicle_brand.upper().strip()
+            
+            is_supported = any(b in brand_upper for b in supported_brands)
+            
+            if vehicle_info and is_supported:
                 # 3. Format the Response
                 if old_vin and old_vin != new_vin:
                     return (
@@ -465,6 +472,14 @@ def handle_vin_input(new_vin: str, user_id: str, session: dict, message: str = "
                     f"**Year:** {vehicle_info.get('date', 'N/A')}\n\n"
                     f"I've saved this chassis number. Please tell me which part you need! 🔧"
                 )
+            elif vehicle_info:
+                return (
+                    f"❌ *Vehicle Not Supported* 🚘\n"
+                    f"• *VIN:* {vin}\n"
+                    f"• *Brand:* {vehicle_brand}\n\n"
+                    f"Sorry, we currently only support BMW, Mercedes-Benz, Rolls-Royce, Mini Cooper, and Honda."
+                )
+
         except Exception as e:
             print(f"[!] Error fetching vehicle details: {e}")
             # If it fails, it will just fall through to the standard message below
@@ -534,8 +549,15 @@ def process_user_message(user_id: str, message: str) -> str:
 
                 # 2. Fetch Details
                 vehicle_info = scraper.get_vehicle_details(new_vin)
-
-                if vehicle_info:
+                vehicle_brand = vehicle_info.get('brand', 'N/A')
+            
+                # Normalize and check supported brands
+                supported_brands = ["BMW", "MERCEDES", "ROLLS ROYCE", "MINI", "HONDA"]
+                brand_upper = vehicle_brand.upper().strip()
+                
+                is_supported = any(b in brand_upper for b in supported_brands)
+                
+                if vehicle_info and is_supported:
                     # 3. Format the Response
                     if old_vin and old_vin != new_vin:
                         return (
@@ -549,9 +571,15 @@ def process_user_message(user_id: str, message: str) -> str:
                         f"🚗 **Vehicle Identified!**\n"
                         f"**Brand:** {vehicle_info.get('brand', 'N/A')}\n"
                         f"**Name:** {vehicle_info.get('name', 'N/A')}\n"
-                        # f"**Model:** {vehicle_info.get('model', 'N/A')}\n"
                         f"**Year:** {vehicle_info.get('date', 'N/A')}\n\n"
                         f"I've saved this chassis number. Please tell me which part you need! 🔧"
+                    )
+                elif vehicle_info:
+                    return (
+                        f"❌ *Vehicle Not Supported* 🚘\n"
+                        f"• *VIN:* {vin}\n"
+                        f"• *Brand:* {vehicle_brand}\n\n"
+                        f"Sorry, we currently only support BMW, Mercedes-Benz, Rolls-Royce, Mini Cooper, and Honda."
                     )
                 else:
                     return "Our team will conatact you soon."
@@ -642,6 +670,8 @@ def process_user_message(user_id: str, message: str) -> str:
                 # -------------------------------
                 matched_parts = []
                 matched_tags = set()
+                found_any = False
+                missing_pns = []
 
                 for pn in part_numbers:
                     pn_clean = normalize_part_number(pn)
@@ -653,20 +683,27 @@ def process_user_message(user_id: str, message: str) -> str:
                         .all()
                     )
                     
-                    for p in parts:
-                        matched_parts.append(p)
-                        if p.tag:
-                            matched_tags.add(p.tag)
+                    if parts:
+                        found_any = True
+                        for p in parts:
+                            matched_parts.append(p)
+                            if p.tag:
+                                matched_tags.add(p.tag)
+                    else:
+                        missing_pns.append(pn)
 
-                    if not matched_tags:
-                        return (
+                # If absolutely nothing found for any input
+                if not found_any and not missing_pns:
+                     return (
                             f"Sorry, we couldn't find any parts matching the provided "
                             f"part number(s). Our team will assist you shortly. 😊"
                         )
                     
-                    # -------------------------------
-                    # STEP 3: Fetch ALL sibling parts
-                    # -------------------------------
+                # -------------------------------
+                # STEP 3: Fetch ALL sibling parts
+                # -------------------------------
+                siblings = []
+                if matched_tags:
                     siblings = (
                         db.session.query(Stock)
                         .filter(Stock.tag.in_(matched_tags))
@@ -674,27 +711,39 @@ def process_user_message(user_id: str, message: str) -> str:
                         .all()
                     )
 
-                    # -------------------------------
-                    # STEP 4: Deduplicate results
-                    # -------------------------------
-                    unique_parts = {}
-                    for p in siblings:
-                        dedupe_key = (p.part_number, p.brand,p.price)
-                        unique_parts[dedupe_key] = p
+                # -------------------------------
+                # STEP 4: Deduplicate results & Add Missing
+                # -------------------------------
+                unique_parts = {}
+                for p in siblings:
+                    dedupe_key = (p.part_number, p.brand,p.price)
+                    unique_parts[dedupe_key] = p
 
-                    final_parts = list(unique_parts.values())
+                final_parts = list(unique_parts.values())
 
-                    results = [
-                        {
-                            "name": p.item_desc,
-                            "part_number": p.part_number,
-                            "brand": p.brand,
-                            "price": float(p.price) if p.price is not None else None,
-                            "qty": p.qty,
-                            "tag": p.tag,
-                        }
-                        for p in final_parts
-                    ]
+                results = [
+                    {
+                        "name": p.item_desc,
+                        "part_number": p.part_number,
+                        "brand": p.brand,
+                        "price": float(p.price) if p.price is not None else None,
+                        "qty": p.qty,
+                        "tag": p.tag,
+                    }
+                    for p in final_parts
+                ]
+
+                # Add entries for missing parts
+                for mpn in missing_pns:
+                    results.append({
+                        "name": "Part not found. Our team will contact you shortly. Pls contact +971 50 482 7057",
+                        "part_number": mpn,
+                        "brand": None,
+                        "price": None,
+                        "qty": 0,
+                        "tag": f"Requested: {mpn}"
+                    })
+
                 is_multiple = len(part_numbers) > 1
                 # print("Final results for part number handling:", results)
         

@@ -503,13 +503,13 @@ class GPTService:
 
             Response structure:
             1️⃣ Friendly greeting in {language}
-            2️⃣ Vehicle Details Block (ONLY IF PROVIDED ABOVE):
+            Vehicle Details Block (ONLY IF PROVIDED ABOVE):
             **Brand:** ...
             **Name:** ...
             **Year:** ...
             (Use double asterisks for bolding headers in this specific block if requested)
-            3️⃣ Short helper line (translated): "{helper_line}"
-            4️⃣ Database Results (Preserve Grouping):
+            2️⃣ Short helper line (translated): "{helper_line}"
+            3️⃣ Database Results (Preserve Grouping):
                - If a line starts with 🔹, keep it EXACTLY as is (do not translate or remove).
                - Then list items for that group:
                • *Item:* <EXACT Product Name>

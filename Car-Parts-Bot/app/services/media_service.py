@@ -47,18 +47,33 @@ def process_image_media(user_id,media_id: str) -> dict:
             if scraper is None:
                 return "SCRAPER NOT ACCESSIBLE"
             vehicle_info = scraper.get_vehicle_details(vin)
-
-            if vehicle_info:
+            vehicle_brand = vehicle_info.get('brand', 'N/A')
+            
+            # Normalize and check supported brands
+            supported_brands = ["BMW", "MERCEDES", "ROLLS ROYCE", "MINI", "HONDA"]
+            brand_upper = vehicle_brand.upper().strip()
+            
+            is_supported = any(b in brand_upper for b in supported_brands)
+            
+            if vehicle_info and is_supported:
                 # 3. Format the Response
                 return (
-                    f"🚗 **Vehicle Identified!**\n"
-                    f"**Brand:** {vehicle_info.get('brand', 'N/A')}\n"
-                    f"**Name:** {vehicle_info.get('name', 'N/A')}\n"
-                    f"**Year:** {vehicle_info.get('date', 'N/A')}\n\n"
-                    f"I've saved this chassis number. Please tell me which part you need! 🔧"
+                    f"✅ *Vehicle Found!* 🚘\n"
+                    f"• *VIN:* {vin}\n"
+                    f"• *Brand:* {vehicle_brand}\n"
+                    f"• *Model:* {vehicle_info.get('name', 'N/A')}\n"
+                    f"• *Year:* {vehicle_info.get('date', 'N/A')}\n\n"
+                    f"Please tell me the *part name* you are looking for. (e.g. Brake Pads, Oil Filter)"
+                )
+            elif vehicle_info:
+                 return (
+                    f"❌ *Vehicle Not Supported* 🚘\n"
+                    f"• *VIN:* {vin}\n"
+                    f"• *Brand:* {vehicle_brand}\n\n"
+                    f"Sorry, we currently only support BMW, Mercedes-Benz, Rolls-Royce, Mini Cooper, and Honda."
                 )
             print(session)
-
+        
         # Ensure consistent output
         return {
             "intent": intent_key,
@@ -69,5 +84,5 @@ def process_image_media(user_id,media_id: str) -> dict:
         print("❌ Image processing failed:", exc)
         return {
             "intent": "No intent Found",
-            "message": "Image processing failed. Please try again."
+            "message": "Image processing failed. Please try again or contact us on +971 50 482 7057" 
         }
