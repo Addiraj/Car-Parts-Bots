@@ -475,7 +475,7 @@ def handle_vin_input(new_vin: str, user_id: str, session: dict, message: str = "
             elif vehicle_info:
                 return (
                     f"❌ *Vehicle Not Supported* 🚘\n"
-                    f"• *VIN:* {vin}\n"
+                    # f"• *VIN:* {vin}\n"
                     f"• *Brand:* {vehicle_brand}\n\n"
                     f"Sorry, we currently only support BMW, Mercedes-Benz, Rolls-Royce, Mini Cooper, and Honda."
                 )
@@ -577,7 +577,7 @@ def process_user_message(user_id: str, message: str) -> str:
                 elif vehicle_info:
                     return (
                         f"❌ *Vehicle Not Supported* 🚘\n"
-                        f"• *VIN:* {vin}\n"
+                        # f"• *VIN:* {vin}\n"
                         f"• *Brand:* {vehicle_brand}\n\n"
                         f"Sorry, we currently only support BMW, Mercedes-Benz, Rolls-Royce, Mini Cooper, and Honda."
                     )
